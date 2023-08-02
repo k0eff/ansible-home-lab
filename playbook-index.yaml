@@ -1,0 +1,8 @@
+---
+
+- name: Default machine setup
+  hosts: everyone
+  become: true
+  gather_facts: false
+  roles:
+  - credentials
