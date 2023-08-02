@@ -10,3 +10,12 @@
       nameserver 8.8.8.8
       options edns0 trust-ad
       search .
+
+
+- name: Sudoers
+  community.general.sudoers:
+    name: allow-default-user
+    state: present
+    user: '{{ default_user }}'
+    commands: ALL
+    nopassword: true
