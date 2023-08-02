@@ -1,0 +1,11 @@
+---
+  - name: Install useful tooling
+    apt:
+      pkg: 
+        - vim
+        - curl
+        - dnsutils
+        - mlocate
+      state: present
+      update_cache: true
+  
