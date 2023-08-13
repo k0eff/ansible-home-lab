@@ -7,9 +7,17 @@ play:
 kubespray-init:
 	CONFIG_FILE=kubespray/inventory/cluster00/hosts.yml python3 kubespray/contrib/inventory_builder/inventory.py 192.168.31.202 192.168.31.203 192.168.31.204
 
-kubespray-deploy:
+read-vars:
 	. ./protected/kubespray-settings/vars/vCenter/vars.sh
+
+kubespray-deploy-00: read-vars
 	cp -rfp protected/kubespray-settings/cluster00 kubespray/inventory && \
 	cd kubespray && \
 	pwd && \
 	ansible-playbook -i inventory/cluster00/hosts.yml --become --become-user=root playbooks/cluster.yml
+
+kubespray-deploy-01-dev: read-vars
+	cp -rfp protected/kubespray-settings/cluster01-dev kubespray/inventory && \
+	cd kubespray && \
+	pwd && \
+	ansible-playbook -i inventory/cluster01-dev/hosts.yml --become --become-user=root playbooks/cluster.yml
