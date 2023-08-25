@@ -8,4 +8,45 @@
         - mlocate
       state: present
       update_cache: true
-  
+
+
+
+  - name: Install nut network ups tools
+    apt:
+      pkg: 
+        - nut
+      state: present
+      update_cache: true
+    when: inventory_hostname == "vm10"
+
+  - name: Nut.conf
+    copy:
+      dest: /etc/nut/nut.conf
+      src: ../files/nut.conf
+    when: inventory_hostname == "vm10"
+
+  - name: Ups.conf backup
+    copy:
+      dest: /etc/nut/ups.conf.bak
+      remote_src: true
+      src: /etc/nut/ups.conf
+    when: inventory_hostname == "vm10"
+
+  - name: Ups.conf
+    copy:
+      dest: /etc/nut/ups.conf
+      src: ../files/ups.conf
+    when: inventory_hostname == "vm10"
+
+  - name: upsd.users
+    template:
+      dest: /etc/nut/upsd.users
+      src: ../files/upsd.users
+    when: inventory_hostname == "vm10"
+
+
+  - name: Restart nut
+    systemd_service:
+      state: restarted
+      name: nut-server
+    when: inventory_hostname == "vm10"
