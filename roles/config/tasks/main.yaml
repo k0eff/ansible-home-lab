@@ -5,7 +5,7 @@
   copy:
     dest: /etc/resolv.conf
     content: |
-      nameserver 192.168.31.177
+      nameserver 192.168.31.149
       nameserver 1.1.1.1
       nameserver 8.8.8.8
       options edns0 trust-ad

@@ -1,0 +1,5 @@
+[{{upsduser}}]
+     password = {{ upsdpasswd }}
+     upsmon primary
+     actions = SET
+     instcmds = ALL
