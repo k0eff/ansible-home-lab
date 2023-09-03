@@ -1,0 +1,42 @@
+---
+  - name: Install vpn tooling
+    apt:
+      pkg: 
+        - ca-certificates
+        - wget
+        - net-tools
+        - gnupg
+      state: present
+      update_cache: true
+
+
+  - name: Apt key
+    apt_key: 
+      state: present
+      url: https://as-repository.openvpn.net/as-repo-public.gpg
+
+  - name: Apt repo
+    apt_repository:
+      repo: deb http://as-repository.openvpn.net/as/debian jammy main
+      state: present
+
+  - name: Install vpn
+    apt:
+      pkg: 
+        - openvpn-as
+      state: present
+      update_cache: true
+
+  - name: openvpn-pass.sh
+    copy:
+      dest: ~/openvpn-cat-pass.sh
+      src: ../files/openvpn-cat-pass.sh
+      mode: 700
+
+  - name: Set pass as var
+    command:
+      cmd: ~/openvpn-cat-pass.sh
+    register: openvpnPass
+  
+  - name: Echo pass
+    debug: msg="{{ openvpnPass.stdout }}"
