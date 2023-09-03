@@ -4,6 +4,9 @@ setup_mac:
 play:
 	ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml
 
+vpn:
+	ansible-playbook -i protected/inventories/inventory-vpn.yaml playbook-vpn.yaml
+
 kubespray-init:
 	CONFIG_FILE=kubespray/inventory/cluster00/hosts.yml python3 kubespray/contrib/inventory_builder/inventory.py 192.168.31.202 192.168.31.203 192.168.31.204
 

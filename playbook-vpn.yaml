@@ -1,0 +1,11 @@
+---
+
+- name: Vpn machine setup
+  hosts: everyone
+  become: true
+  gather_facts: false
+  roles:
+  - credentials
+  - config
+  - packages
+  - vpn
