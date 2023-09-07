@@ -8,3 +8,14 @@
   - credentials
   - config
   - packages
+
+- name: Ops machine setup
+  hosts: ops
+  become: true
+  gather_facts: true
+  roles:
+  - credentials
+  - config
+  - packages
+  - geerlingguy.docker
+  - ops-settings

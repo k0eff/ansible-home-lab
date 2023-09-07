@@ -4,6 +4,9 @@ setup_mac:
 play:
 	ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml
 
+ops:
+	ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml -l ops
+
 vpn:
 	ansible-playbook -i protected/inventories/inventory-vpn.yaml playbook-vpn.yaml
 
@@ -24,3 +27,6 @@ kubespray-deploy-01-dev: read-vars
 	cd kubespray && \
 	pwd && \
 	ansible-playbook -i inventory/cluster01-dev/hosts.yml --become --become-user=root playbooks/cluster.yml
+
+galaxy:
+	ansible-galaxy install -r ./requirements.yaml
