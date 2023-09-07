@@ -1,27 +1,55 @@
 ---
 
+- name: Install git
+  apt:
+    pkg: 
+      - git
+    state: present
+    update_cache: true
+
 - name: Ensure Projects
   ansible.builtin.file:
     path: /home/{{ default_user }}/Projects
     state: directory
     owner: "{{ default_user }}"
-    mode: 700
+    group: "{{ default_user }}"
+    mode: u=rw,g=,o=
+    mode: 0700
 
 - name: Ensure .ssh
   ansible.builtin.file:
     path: /home/{{ default_user }}/.ssh
     state: directory
 
+- name: Ensure .docker
+  ansible.builtin.file:
+    path: /home/{{ default_user }}/.docker
+    state: directory
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
+
+- name: Docker
+  copy:
+    dest: /home/{{ default_user }}/.docker/config.json
+    src: '../../../protected/docker/config.json'
+    mode: u=rw,g=,o=
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
+
 - name: Keys1
   copy:
     dest: /home/{{ default_user }}/.ssh/homelab-docker.key.pub
     src: '../../../protected/keys/docker/homelab-docker.key.pub'
     mode: u=r,g=,o=
+
 - name: Keys2
   copy:
     dest: /home/{{ default_user }}/.ssh/homelab-docker.key
     src: '../../../protected/keys/docker/homelab-docker.key'
     mode: u=r,g=,o=
+
+- name: Ensure git ignores crlf
+  command: "git config --global core.autocrlf true"
 
 - name: Git checkout main repo
   ansible.builtin.git:
@@ -30,6 +58,7 @@
     version: main
     key_file: /home/{{ default_user }}/.ssh/homelab-docker.key
     accept_newhostkey: true
+  ignore_errors: true
 
 - name: Git checkout protected repo
   ansible.builtin.git:
@@ -38,3 +67,11 @@
     version: main
     key_file: /home/{{ default_user }}/.ssh/homelab-docker.key
     accept_newhostkey: true
+
+- name: Set helmfile permissions
+  ansible.builtin.file:
+    path: /home/{{ default_user }}/Projects/helmfile-home-lab
+    state: directory
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
+    recurse: true
