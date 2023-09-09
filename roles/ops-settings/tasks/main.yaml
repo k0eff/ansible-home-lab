@@ -4,6 +4,7 @@
   apt:
     pkg: 
       - git
+      - cmake
     state: present
     update_cache: true
 
