@@ -1,13 +1,19 @@
 ---
 
-- name: Install git
+- name: Install tools
   apt:
     pkg: 
       - git
       - cmake
       - python3-paramiko
+      - dos2unix
     state: present
     update_cache: true
+
+- git_config:
+    name: core.autocrlf
+    scope: global
+    value: false
 
 - name: Ensure Projects
   ansible.builtin.file:
