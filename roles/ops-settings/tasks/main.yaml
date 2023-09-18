@@ -5,6 +5,7 @@
     pkg: 
       - git
       - cmake
+      - python3-paramiko
     state: present
     update_cache: true
 
@@ -52,6 +53,12 @@
 - name: Ensure git ignores crlf
   command: "git config --global core.autocrlf true"
 
+
+- name: Add a host in the configuration
+  community.general.ssh_config:
+    host: "github.com"
+    identity_file: "/home/{{ default_user }}/.ssh/homelab-docker.key"
+
 - name: Git checkout main repo
   ansible.builtin.git:
     repo: 'git@github.com:k0eff/helmfile-home-lab.git'
@@ -59,6 +66,7 @@
     version: main
     key_file: /home/{{ default_user }}/.ssh/homelab-docker.key
     accept_newhostkey: true
+    force: true
   ignore_errors: true
 
 - name: Git checkout protected repo
@@ -68,6 +76,9 @@
     version: main
     key_file: /home/{{ default_user }}/.ssh/homelab-docker.key
     accept_newhostkey: true
+    force: true
+  ignore_errors: true
+
 
 - name: Set helmfile permissions
   ansible.builtin.file:
