@@ -1,4 +1,8 @@
 ---
 
+roles:
 - src: geerlingguy.docker
-- src: community.general
+- src: geerlingguy.samba
+
+collections:
+- name: community.general
