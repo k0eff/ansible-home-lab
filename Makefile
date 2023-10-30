@@ -6,6 +6,8 @@ play:
 
 ops:
 	ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml -l ops
+diskstorage:
+	ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml -l diskstorage
 
 vpn:
 	ansible-playbook -i protected/inventories/inventory-vpn.yaml playbook-vpn.yaml

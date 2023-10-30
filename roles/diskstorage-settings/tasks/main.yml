@@ -1,0 +1,55 @@
+---
+
+- name: Ensure Samba root
+  ansible.builtin.file:
+    path: /sambaroot
+    state: directory
+    owner: "root"
+    group: "root"
+    mode: 0711
+- name: Ensure Samba user dirs
+  loop: '{{ samba_data.shares }}'
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.main_user }}"
+    group: "{{ item.main_user }}"
+    mode: 0700
+
+- name: Create groups for users
+  with_items: '{{ samba_data.users }}'
+  group:
+    name: '{{ item.group }}'
+    state: present
+
+
+- name: Create users passes
+  with_items: '{{ samba_data.users }}'
+  register: 'passwords'
+  shell: 'openssl passwd -6 -salt {{ item.salt }} {{ item.pass }}'
+
+- name: Create users with passwords
+  loop: '{{ samba_data.users }}'
+  loop_control:
+    index_var: idx
+  user:
+    name: '{{ item.name }}'
+    password: '{{ passwords.results[idx].stdout }}'
+    shell: /sbin/nologin
+
+- name: Create samba passwords
+  loop: '{{ samba_data.users }}'
+  loop_control:
+    index_var: idx
+  shell: "printf '{{ item.pass }}\n{{ item.pass }}\n' | smbpasswd -a {{ item.name }}"
+
+
+- name: Set smb conf
+  template:
+      src: files/smb.conf.jinja2
+      dest: /etc/samba/smb.conf
+
+- name: Restart samba service
+  systemd_service:
+    state: restarted
+    name: smbd

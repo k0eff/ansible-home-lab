@@ -19,3 +19,15 @@
   - packages
   - geerlingguy.docker
   - ops-settings
+
+
+- name: Disk storage setup
+  hosts: diskstorage
+  become: true
+  gather_facts: true
+  roles:
+  - credentials
+  - config
+  - packages
+  - geerlingguy.samba
+  - diskstorage-settings
