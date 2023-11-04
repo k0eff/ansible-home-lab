@@ -252,4 +252,10 @@
     valid users = {{ item.valid_users }}
     create mask = 0750
     directory mask = 0750
+{% if item.read_list is defined %}
+    read list = {{ item.read_list }}
+{% endif %}
+{% if item.write_list is defined %}
+    write list = {{ item.write_list }}
+{% endif %}
 {% endfor %}

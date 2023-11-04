@@ -21,7 +21,6 @@
     state: directory
     owner: "{{ default_user }}"
     group: "{{ default_user }}"
-    mode: u=rw,g=,o=
     mode: 0700
 
 - name: Ensure .ssh

@@ -7,6 +7,15 @@
     owner: "root"
     group: "root"
     mode: 0711
+
+- name: Ensure disk is mounted
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    line: '/dev/disk/by-uuid/f7c8fae9-8f96-46b3-b3e5-27395031496a /sambaroot ext4 defaults 0 1'
+
+- name: Create users passes
+  shell: 'mount -a'
+
 - name: Ensure Samba user dirs
   loop: '{{ samba_data.shares }}'
   ansible.builtin.file:
@@ -14,7 +23,7 @@
     state: directory
     owner: "{{ item.main_user }}"
     group: "{{ item.main_user }}"
-    mode: 0700
+    mode: 0750
 
 - name: Create groups for users
   with_items: '{{ samba_data.users }}'
@@ -36,6 +45,7 @@
     name: '{{ item.name }}'
     password: '{{ passwords.results[idx].stdout }}'
     shell: /sbin/nologin
+    group: '{{ item.group }}'
 
 - name: Create samba passwords
   loop: '{{ samba_data.users }}'
