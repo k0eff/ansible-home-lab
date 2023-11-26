@@ -5,6 +5,8 @@ play:
 	ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml
 
 ops:
+	# fix for node_exporter
+	export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 	ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml -l ops
 diskstorage:
 	ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml -l diskstorage
