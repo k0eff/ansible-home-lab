@@ -3,9 +3,10 @@
 - name: Vpn machine setup
   hosts: everyone
   become: true
-  gather_facts: false
+  gather_facts: true
   roles:
   - credentials
   - config
   - packages
   - vpn
+  - prometheus.prometheus.node_exporter

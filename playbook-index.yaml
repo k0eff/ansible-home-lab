@@ -19,6 +19,7 @@
   - packages
   - geerlingguy.docker
   - ops-settings
+  - prometheus.prometheus.node_exporter
 
 
 - name: Disk storage setup
@@ -31,3 +32,4 @@
   - packages
   - geerlingguy.samba
   - diskstorage-settings
+  - prometheus.prometheus.node_exporter
