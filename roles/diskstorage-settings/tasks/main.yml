@@ -63,3 +63,20 @@
   systemd_service:
     state: restarted
     name: smbd
+
+- name: Install hdparm
+  apt:
+    pkg: 
+    - hdparm
+    state: present
+    update_cache: true
+
+- name: Set hdparm service
+  template:
+      src: files/hdparm.service
+      dest: /etc/systemd/system/hdparm.service
+
+- name: enable hdparm service
+  systemd_service:
+    enabled: true
+    name: hdparm
