@@ -80,3 +80,55 @@
   systemd_service:
     enabled: true
     name: hdparm
+
+
+
+- name: Install node exporter tools
+  apt:
+    pkg: 
+    - smartmontools
+    - python3-paramiko
+    - git
+    state: present
+    update_cache: true
+
+
+- name: Keys1
+  copy:
+    dest: /home/{{ default_user }}/.ssh/homelab-docker.key.pub
+    src: '../../../protected/keys/docker/homelab-docker.key.pub'
+    mode: u=r,g=,o=
+
+- name: Keys2
+  copy:
+    dest: /home/{{ default_user }}/.ssh/homelab-docker.key
+    src: '../../../protected/keys/docker/homelab-docker.key'
+    mode: u=r,g=,o=
+
+- name: Add a host in the configuration
+  community.general.ssh_config:
+    host: "github.com"
+    identity_file: "/home/{{ default_user }}/.ssh/homelab-docker.key"
+
+
+- name: Ensure git ignores crlf
+  command: "git config --global core.autocrlf true"
+
+- name: Ensure Projects
+  ansible.builtin.file:
+    path: /home/{{ default_user }}/Projects
+    state: directory
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
+    mode: 0700
+
+
+- name: Git checkout main repo
+  ansible.builtin.git:
+    repo: 'git@github.com:olegeech-me/S.M.A.R.T-disk-monitoring-for-Prometheus.git'
+    dest: /home/{{ default_user }}/Projects
+    version: master
+    key_file: /home/{{ default_user }}/.ssh/homelab-docker.key
+    accept_newhostkey: true
+    force: true
+  ignore_errors: true

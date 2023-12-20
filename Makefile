@@ -6,12 +6,10 @@ play:
 
 ops:
 	# fix for node_exporter
-	export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-	ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml -l ops
+	OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml -l ops
 diskstorage:
 	# fix for node_exporter
-	export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-	ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml -l diskstorage
+	OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml -l diskstorage
 
 vpn:
 	ansible-playbook -i protected/inventories/inventory-vpn.yaml playbook-vpn.yaml
