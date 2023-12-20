@@ -89,6 +89,8 @@
     - smartmontools
     - python3-paramiko
     - git
+    - cron
+    - dos2unix
     state: present
     update_cache: true
 
@@ -125,10 +127,20 @@
 
 - name: Git checkout main repo
   ansible.builtin.git:
-    repo: 'git@github.com:olegeech-me/S.M.A.R.T-disk-monitoring-for-Prometheus.git'
-    dest: /home/{{ default_user }}/Projects
+    repo: 'git@github.com:k0eff/S.M.A.R.T-disk-monitoring-for-Prometheus.git'
+    dest: /home/{{ default_user }}/Projects/smart-disk-monitoring-prometheus
     version: master
     key_file: /home/{{ default_user }}/.ssh/homelab-docker.key
     accept_newhostkey: true
     force: true
   ignore_errors: true
+
+- name: fix line feeds
+  shell: 'dos2unix /home/{{ default_user }}/Projects/smart-disk-monitoring-prometheus/smartmon.sh'
+
+- name: Enable cron for smartmon exporter job
+  ansible.builtin.cron:
+    name: "run smartmon"
+    minute: "*/5"
+    job: "/home/{{ default_user }}/Projects/smart-disk-monitoring-prometheus/smartmon.sh > /var/lib/node_exporter/smart_metrics.prom"
+
