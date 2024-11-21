@@ -32,5 +32,12 @@ kubespray-deploy-01-dev: read-vars
 	pwd && \
 	ansible-playbook -i inventory/cluster01-dev/hosts.yml --become --become-user=root playbooks/cluster.yml
 
+kubespray-upgrade-00: read-vars
+	cp -rfp protected/kubespray-settings/cluster00 kubespray/inventory && \
+	cd kubespray && \
+	pwd && \
+	ansible-playbook -i inventory/cluster00/hosts.yml -e kube_version=v1.30.0  --become --become-user=root -e upgrade_cluster_setup=true playbooks/cluster.yml
+
+
 galaxy:
 	ansible-galaxy install -r ./requirements.yaml
