@@ -1,42 +1,62 @@
 ---
-  - name: Install vpn tooling
-    apt:
-      pkg: 
-        - ca-certificates
-        - wget
-        - net-tools
-        - gnupg
-      state: present
-      update_cache: true
+
+- name: Install vpn tooling
+  apt:
+    pkg: 
+      - ca-certificates
+      - wget
+      - net-tools
+      - gnupg
+    state: present
+    update_cache: true
+
+# Below steps stolen from: https://packages.openvpn.net/as/install.sh
+
+- name: Ensure keyring dir
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: "root"
+    group: "root"
+    mode: 0711
 
 
-  - name: Apt key
-    apt_key: 
-      state: present
-      url: https://as-repository.openvpn.net/as-repo-public.gpg
+- name: Download file from a file path
+  ansible.builtin.get_url:
+    url: https://packages.openvpn.net/as-repo-public.asc
+    dest: /etc/apt/keyrings/as-repository.asc
 
-  - name: Apt repo
-    apt_repository:
-      repo: deb http://as-repository.openvpn.net/as/debian jammy main
-      state: present
+- name: Get arch
+  shell: "dpkg --print-architecture"
+  register: arch
 
-  - name: Install vpn
-    apt:
-      pkg: 
-        - openvpn-as
-      state: present
-      update_cache: true
+- name: Get version codename
+  shell: "grep VERSION_CODENAME /etc/os-release | cut -d'=' -f2"
+  register: vesioncode
 
-  - name: openvpn-pass.sh
-    copy:
-      dest: ~/openvpn-cat-pass.sh
-      src: ../files/openvpn-cat-pass.sh
-      mode: 700
 
-  - name: Set pass as var
-    command:
-      cmd: ~/openvpn-cat-pass.sh
-    register: openvpnPass
-  
-  - name: Echo pass
-    debug: msg="{{ openvpnPass.stdout }}"
+- name: Apt repo
+  apt_repository:
+    repo: "deb [arch={{ arch.stdout }} signed-by=/etc/apt/keyrings/as-repository.asc] http://packages.openvpn.net/as/debian {{ vesioncode.stdout }} main"
+    state: present
+
+- name: Install vpn
+  apt:
+    pkg: 
+      - openvpn-as
+    state: present
+    update_cache: true
+
+- name: openvpn-pass.sh
+  copy:
+    dest: ~/openvpn-cat-pass.sh
+    src: ../files/openvpn-cat-pass.sh
+    mode: 700
+
+- name: Set pass as var
+  command:
+    cmd: ~/openvpn-cat-pass.sh
+  register: openvpnPass
+
+- name: Echo pass
+  debug: msg="{{ openvpnPass.stdout }}"
