@@ -5,7 +5,7 @@
         - vim
         - curl
         - dnsutils
-        - mlocate
+        - plocate
       state: present
       update_cache: true
 
