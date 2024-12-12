@@ -20,6 +20,9 @@ kubespray-init:
 read-vars:
 	. ./protected/kubespray-settings/vars/vCenter/vars.sh
 
+kubespray-install:
+	git clone https://github.com/kubernetes-sigs/kubespray.git
+
 kubespray-deploy-00: read-vars
 	cp -rfp protected/kubespray-settings/cluster00 kubespray/inventory && \
 	cd kubespray && \
