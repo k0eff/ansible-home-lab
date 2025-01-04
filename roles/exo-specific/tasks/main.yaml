@@ -1,0 +1,40 @@
+---
+
+- name: Install exo packages
+  apt:
+    pkg:
+      - python3 # needs be 3.12.0+
+      - python3-pip
+      - python3-venv
+      - libgl1
+    state: present
+    update_cache: true
+
+- name: Git checkout main repo
+  ansible.builtin.git:
+    repo: 'https://github.com/exo-explore/exo.git'
+    dest: /home/{{ default_user }}/Projects/exo
+    version: main
+    force: true
+  ignore_errors: true
+
+- name: Install exo deps
+  command: '/home/{{ default_user }}/Projects/exo/install.sh'
+  args:
+    chdir: '/home/{{ default_user }}/Projects/exo'
+
+
+- name: Set exo service
+  template:
+      src: files/exo.service
+      dest: /etc/systemd/system/exo.service
+  tags:
+    - service
+
+- name: Enable exo service
+  systemd_service:
+    state: started
+    enabled: true
+    name: /home/{{ default_user }}/Projects/exo/.venv/bin/exo
+  tags:
+    - service

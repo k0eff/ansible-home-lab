@@ -1,0 +1,12 @@
+---
+
+- name: Exo machine setup
+  hosts: everyone
+  become: true
+  gather_facts: true
+  roles:
+    - credentials
+    - config
+    - packages
+    - exo-specific
+    - prometheus.prometheus.node_exporter

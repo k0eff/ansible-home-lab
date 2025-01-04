@@ -1,0 +1,10 @@
+[Unit]
+Description="exo service"
+
+[Service]
+Type=forking
+WorkingDirectory=/home/{{ default_user }}/Projects/exo
+ExecStart="/home/koeffuser/Projects/exo/.venv/bin/exo"
+
+[Install]
+WantedBy=multi-user.target
