@@ -32,12 +32,6 @@ kubespray-deploy-00: read-vars
 	pwd && \
 	ansible-playbook -i inventory/cluster00/hosts.yml --become --become-user=root playbooks/cluster.yml
 
-kubespray-deploy-01-dev: read-vars
-	cp -rfp protected/kubespray-settings/cluster01-dev kubespray/inventory && \
-	cd kubespray && \
-	pwd && \
-	ansible-playbook -i inventory/cluster01-dev/hosts.yml --become --become-user=root playbooks/cluster.yml
-
 kubespray-upgrade-00: read-vars
 	cp -rfp protected/kubespray-settings/cluster00 kubespray/inventory && \
 	cd kubespray && \
