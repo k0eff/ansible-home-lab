@@ -7,3 +7,4 @@ roles:
 collections:
 - name: community.general
 - name: prometheus.prometheus
+- name: community.docker
