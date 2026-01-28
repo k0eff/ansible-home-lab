@@ -1,0 +1,50 @@
+services:
+  mongo:
+    image: mongo:8.2.4
+    container_name: rc-mongo
+    restart: unless-stopped
+    command: ["mongod","--replSet","rs0","--oplogSize","128"]
+    volumes:
+      - ./mongo:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' localhost:27017 | grep 1 >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  mongo-init-replica:
+    image: mongo:8.2.4
+    container_name: rc-mongo-init
+    restart: "no"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    command:
+      - bash
+      - -lc
+      - |
+        mongosh --host mongo:27017 --eval '
+          try { rs.status(); print("Replica set already initialized"); }
+          catch (e) {
+            rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "mongo:27017" }] });
+            print("Replica set initiated");
+          }
+        '
+
+  rocketchat:
+    image: rocket.chat:8.0.1
+    container_name: rocketchat
+    restart: unless-stopped
+    depends_on:
+      mongo-init-replica:
+        condition: service_completed_successfully
+    ports:
+      - "6666:3000"
+    environment:
+      ROOT_URL: "https://chat.koeff.com"
+      PORT: "3000"
+      MONGO_URL: "mongodb://mongo:27017/rocketchat?replicaSet=rs0"
+      MONGO_OPLOG_URL: "mongodb://mongo:27017/local?replicaSet=rs0"
+      TRUSTED_PROXIES: "*"
+    volumes:
+      - ./uploads:/app/uploads

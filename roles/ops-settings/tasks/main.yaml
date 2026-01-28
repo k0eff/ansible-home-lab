@@ -7,8 +7,12 @@
       - cmake
       - python3-paramiko
       - dos2unix
+      - rsync
     state: present
     update_cache: true
+
+- name: Configure Docker Storage
+  import_tasks: storage-docker.yaml
 
 - git_config:
     name: core.autocrlf
@@ -105,6 +109,11 @@
 #   community.docker.docker_container:
 #     name: portainer
 #     restart: true
+
+
+- name: Import RocketChat setup
+  import_tasks: rocketchat.yaml
+
 
 
 

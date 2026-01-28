@@ -1,0 +1,65 @@
+---
+- name: Check if /dev/sdb is already mounted at /var/lib/docker
+  ansible.builtin.shell: mount | grep '/var/lib/docker' | grep '/dev/sdb'
+  register: docker_mount_check
+  failed_when: false
+  changed_when: false
+
+- name: Configure Docker Storage (200GB Disk)
+  when: docker_mount_check.rc != 0
+  block:
+    - name: Ensure rsync is installed
+      ansible.builtin.apt:
+        name: rsync
+        state: present
+
+    - name: Stop Docker service
+      ansible.builtin.service:
+        name: docker
+        state: stopped
+
+    - name: Create ext4 filesystem on /dev/sdb
+      community.general.filesystem:
+        fstype: ext4
+        dev: /dev/sdb
+
+    - name: Create temporary mount point
+      ansible.builtin.file:
+        path: /mnt/docker-migration
+        state: directory
+
+    - name: Mount 200GB disk temporarily
+      ansible.builtin.mount:
+        path: /mnt/docker-migration
+        src: /dev/sdb
+        fstype: ext4
+        state: mounted
+
+    # We need to move data because 'geerlingguy.docker' runs BEFORE this role.
+    # Docker is already installed on the root disk. We move that data to the new disk
+    # so we don't lose the initial installation state/images.
+    - name: Sync existing Docker data to new disk
+      ansible.builtin.shell: rsync -ax /var/lib/docker/ /mnt/docker-migration/
+      # Only run if source has files. 'rsync' handles empty source fine.
+
+    - name: Unmount temporary mount
+      ansible.builtin.mount:
+        path: /mnt/docker-migration
+        state: absent
+
+    - name: Mount 200GB disk to /var/lib/docker
+      ansible.builtin.mount:
+        path: /var/lib/docker
+        src: /dev/sdb
+        fstype: ext4
+        state: mounted
+
+    - name: Start Docker service
+      ansible.builtin.service:
+        name: docker
+        state: started
+
+    - name: Remove temporary mount point
+      ansible.builtin.file:
+        path: /mnt/docker-migration
+        state: absent
