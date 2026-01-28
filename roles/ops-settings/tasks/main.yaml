@@ -91,4 +91,20 @@
     state: directory
     owner: "{{ default_user }}"
     group: "{{ default_user }}"
-    recurse: true
+
+- name: Import Portainer setup
+  import_tasks: portainer.yaml
+
+- name: Verify connectivity and open ports
+  ansible.builtin.command: "{{ playbook_dir }}/verify_vm700.sh"
+  delegate_to: localhost
+  become: false
+  changed_when: false
+
+# - name: Restart Portainer container
+#   community.docker.docker_container:
+#     name: portainer
+#     restart: true
+
+
+
