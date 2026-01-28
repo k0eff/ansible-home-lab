@@ -13,7 +13,7 @@ fi
 
 echo "Checking Portainer ports..."
 
-for port in 9000 9443; do
+for port in 9000 9443 6666; do
     echo -n "Port $port: "
     if nc -z -G 2 $IP $port &> /dev/null; then
         echo "OPEN"
