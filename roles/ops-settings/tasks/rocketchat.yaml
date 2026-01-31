@@ -17,17 +17,22 @@
     dest: /var/lib/docker-data
     state: link
 
+- name: Ensure /var/lib/docker is traversable by other users
+  ansible.builtin.file:
+    path: /var/lib/docker
+    mode: '0711' # rwx --x --x (allow traversal)
+
 - name: Ensure target data directories exist with correct ownership
   ansible.builtin.file:
     path: "{{ item.path }}"
     state: directory
     owner: "{{ item.owner }}"
     group: "{{ item.group }}"
-    mode: '0755'
+    mode: "{{ item.mode }}"
     recurse: true
   loop:
-    - { path: '/var/lib/docker-data/rocketchat-mongo', owner: '999', group: '0' }
-    - { path: '/var/lib/docker-data/rocketchat-uploads', owner: '999', group: '999' }
+    - { path: '/var/lib/docker-data/rocketchat-mongo', owner: '999', group: '0', mode: '0755' }
+    - { path: '/var/lib/docker-data/rocketchat-uploads', owner: '999', group: '999', mode: '0777' }
 
 - name: Copy RocketChat Docker Compose file
   ansible.builtin.copy:
