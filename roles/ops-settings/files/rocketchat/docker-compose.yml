@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     command: ["mongod","--replSet","rs0","--oplogSize","128"]
     volumes:
-      - ./mongo:/data/db
+      - /var/lib/docker-data/rocketchat-mongo:/data/db
     healthcheck:
       test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' localhost:27017 | grep 1 >/dev/null"]
       interval: 10s
@@ -47,4 +47,4 @@ services:
       MONGO_OPLOG_URL: "mongodb://mongo:27017/local?replicaSet=rs0"
       TRUSTED_PROXIES: "*"
     volumes:
-      - ./uploads:/app/uploads
+      - /var/lib/docker-data/rocketchat-uploads:/app/uploads

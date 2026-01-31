@@ -5,6 +5,56 @@
     state: directory
     mode: '0755'
 
+- name: Ensure Docker data directory exists on secondary disk
+  ansible.builtin.file:
+    path: /var/lib/docker/data
+    state: directory
+    mode: '0755'
+
+- name: Create symlink for /var/lib/docker-data
+  ansible.builtin.file:
+    src: /var/lib/docker/data
+    dest: /var/lib/docker-data
+    state: link
+
+- name: Check if migration is already done
+  ansible.builtin.stat:
+    path: /var/lib/docker-data/rocketchat-mongo
+  register: mongo_migrated
+
+- name: Migrate MongoDB and RocketChat data
+  when: not mongo_migrated.stat.exists
+  block:
+    - name: Stop RocketChat stack for migration
+      community.docker.docker_compose_v2:
+        project_src: /opt/rocketchat
+        state: absent
+
+    - name: Ensure target directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /var/lib/docker-data/rocketchat-mongo
+        - /var/lib/docker-data/rocketchat-uploads
+
+    - name: Sync MongoDB data
+      ansible.builtin.shell: rsync -aHAX --numeric-ids /opt/rocketchat/mongo/ /var/lib/docker-data/rocketchat-mongo/
+
+    - name: Sync RocketChat uploads
+      ansible.builtin.shell: rsync -aHAX --numeric-ids /opt/rocketchat/uploads/ /var/lib/docker-data/rocketchat-uploads/
+
+- name: Set ownership for RocketChat and MongoDB data
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    recurse: true
+  loop:
+    - { path: '/var/lib/docker-data/rocketchat-mongo', owner: '999', group: '0' }
+    - { path: '/var/lib/docker-data/rocketchat-uploads', owner: '999', group: '999' }
+
 - name: Copy RocketChat Docker Compose file
   ansible.builtin.copy:
     src: rocketchat/docker-compose.yml
@@ -23,3 +73,12 @@
     project_src: /opt/rocketchat
     state: present
     pull: always
+
+- name: Validate MongoDB storage disk
+  ansible.builtin.shell: docker exec rc-mongo df -h /data/db
+  register: mongo_disk_check
+  changed_when: false
+
+- name: Print MongoDB storage validation
+  ansible.builtin.debug:
+    var: mongo_disk_check.stdout_lines
