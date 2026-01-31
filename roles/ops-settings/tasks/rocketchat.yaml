@@ -1,5 +1,5 @@
 ---
-- name: Ensure RocketChat directory exists
+- name: Ensure RocketChat project directory exists
   ansible.builtin.file:
     path: /opt/rocketchat
     state: directory
@@ -17,39 +17,13 @@
     dest: /var/lib/docker-data
     state: link
 
-- name: Check if migration is already done
-  ansible.builtin.stat:
-    path: /var/lib/docker-data/rocketchat-mongo
-  register: mongo_migrated
-
-- name: Migrate MongoDB and RocketChat data
-  when: not mongo_migrated.stat.exists
-  block:
-    - name: Stop RocketChat stack for migration
-      community.docker.docker_compose_v2:
-        project_src: /opt/rocketchat
-        state: absent
-
-    - name: Ensure target directories exist
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: directory
-        mode: '0755'
-      loop:
-        - /var/lib/docker-data/rocketchat-mongo
-        - /var/lib/docker-data/rocketchat-uploads
-
-    - name: Sync MongoDB data
-      ansible.builtin.shell: rsync -aHAX --numeric-ids /opt/rocketchat/mongo/ /var/lib/docker-data/rocketchat-mongo/
-
-    - name: Sync RocketChat uploads
-      ansible.builtin.shell: rsync -aHAX --numeric-ids /opt/rocketchat/uploads/ /var/lib/docker-data/rocketchat-uploads/
-
-- name: Set ownership for RocketChat and MongoDB data
+- name: Ensure target data directories exist with correct ownership
   ansible.builtin.file:
     path: "{{ item.path }}"
+    state: directory
     owner: "{{ item.owner }}"
     group: "{{ item.group }}"
+    mode: '0755'
     recurse: true
   loop:
     - { path: '/var/lib/docker-data/rocketchat-mongo', owner: '999', group: '0' }
@@ -61,12 +35,12 @@
     dest: /opt/rocketchat/docker-compose.yml
     mode: '0644'
 
-- name: Render .env file (if needed, currently placeholder)
+- name: Render .env file (if needed)
   ansible.builtin.template:
     src: rocketchat/.env.j2
     dest: /opt/rocketchat/.env
     mode: '0644'
-  ignore_errors: true # Ignore if we haven't created a template for .env yet
+  ignore_errors: true
 
 - name: Run RocketChat Docker Compose stack
   community.docker.docker_compose_v2:
