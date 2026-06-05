@@ -32,19 +32,20 @@ kubespray-deploy-00: read-vars
 	pwd && \
 	ansible-playbook -i inventory/cluster00/hosts.yml --become --become-user=root playbooks/cluster.yml
 
-KUBE_VERSION ?= v1.30.6
+KUBE_VERSION ?= 1.31.2
+KUBESPRAY_KUBE_VERSION := $(patsubst v%,%,$(KUBE_VERSION))
 
 kubespray-upgrade-00: read-vars
 	cp -rfp protected/kubespray-settings/cluster00 kubespray/inventory && \
 	cd kubespray && \
 	pwd && \
-	../.venv/bin/ansible-playbook -i inventory/cluster00/hosts.yml -e kube_version=$(KUBE_VERSION)  --become --become-user=root -e upgrade_cluster_setup=true playbooks/cluster.yml
+	../.venv/bin/ansible-playbook -i inventory/cluster00/hosts.yml -e kube_version=$(KUBESPRAY_KUBE_VERSION)  --become --become-user=root -e upgrade_cluster_setup=true playbooks/cluster.yml
 
 kubespray-upgrade-graceful-00: read-vars
 	cp -rfp protected/kubespray-settings/cluster00 kubespray/inventory && \
 	cd kubespray && \
 	pwd && \
-	../.venv/bin/ansible-playbook -i inventory/cluster00/hosts.yml -e kube_version=$(KUBE_VERSION) -e "serial=1" --become --become-user=root upgrade-cluster.yml
+	../.venv/bin/ansible-playbook -i inventory/cluster00/hosts.yml -e kube_version=$(KUBESPRAY_KUBE_VERSION) -e "serial=1" --become --become-user=root upgrade-cluster.yml
 
 
 galaxy:
