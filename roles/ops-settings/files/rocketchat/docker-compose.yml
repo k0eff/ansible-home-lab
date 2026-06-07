@@ -4,7 +4,7 @@ services:
     image: mongo:8.2.4
     container_name: rc-mongo
     restart: unless-stopped
-    command: ["mongod","--replSet","rs0","--oplogSize","128"]
+    command: ["mongod","--replSet","rs0","--oplogSize","128","--wiredTigerCacheSizeGB","0.25"]
     volumes:
       - /var/lib/docker-data/rocketchat-mongo:/data/db
     healthcheck:
