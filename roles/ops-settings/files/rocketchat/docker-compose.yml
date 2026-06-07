@@ -1,3 +1,4 @@
+# Manual DB backup from 8.0.1 upgrade at /var/lib/docker-data/rocketchat-mongo/rocketchat-backup-8.0.1.archive
 services:
   mongo:
     image: mongo:8.2.4
@@ -32,7 +33,7 @@ services:
         '
 
   rocketchat:
-    image: rocket.chat:8.0.1
+    image: rocket.chat:8.4.3
     container_name: rocketchat
     restart: unless-stopped
     depends_on:
