@@ -47,6 +47,24 @@
     owner: "{{ default_user }}"
     group: "{{ default_user }}"
 
+  # Ensure the VS Code user settings directory exists for the target user
+  - name: Ensure VS Code user settings directory
+    ansible.builtin.file:
+      path: /home/{{ default_user }}/Library/Application Support/Code/User
+      state: directory
+      owner: "{{ default_user }}"
+      group: "{{ default_user }}"
+      mode: '0700'
+
+  # Copy chatLanguageModels.json from the protected repository (passwords are stored there)
+  - name: Deploy chatLanguageModels.json (protected)
+    copy:
+      src: '../../../protected/chatLanguageModels.json'
+      dest: "/home/{{ default_user }}/Library/Application Support/Code/User/chatLanguageModels.json"
+      owner: "{{ default_user }}"
+      group: "{{ default_user }}"
+      mode: '0600'
+
 - name: Keys1
   copy:
     dest: /home/{{ default_user }}/.ssh/homelab-docker.key.pub
