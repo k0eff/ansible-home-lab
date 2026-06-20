@@ -1,0 +1,10 @@
+---
+
+- name: Mac machine setup
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: true
+  roles:
+    - vscode-mcp
+    - continue-config

@@ -1,0 +1,34 @@
+---
+- name: Define Playwright MCP stack paths
+  ansible.builtin.set_fact:
+    playwright_mcp_stack_dir: /opt/playwright-mcp
+
+- name: Ensure Playwright MCP stack directory exists
+  ansible.builtin.file:
+    path: "{{ playwright_mcp_stack_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render Playwright MCP Dockerfile
+  ansible.builtin.template:
+    src: playwright-mcp/Dockerfile.j2
+    dest: "{{ playwright_mcp_stack_dir }}/Dockerfile"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Render Playwright MCP compose file
+  ansible.builtin.template:
+    src: playwright-mcp/docker-compose.yml.j2
+    dest: "{{ playwright_mcp_stack_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Start Playwright MCP stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ playwright_mcp_stack_dir }}"
+    state: present
+    pull: always

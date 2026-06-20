@@ -1,0 +1,47 @@
+---
+- name: Define Continue config paths
+  ansible.builtin.set_fact:
+    continue_user_config_dir: "{{ lookup('env', 'HOME') }}/.continue"
+    continue_config_path: "{{ lookup('env', 'HOME') }}/.continue/config.yaml"
+    vscode_user_settings_path: "{{ lookup('env', 'HOME') }}/Library/Application Support/Code/User/settings.json"
+
+- name: Ensure Continue config directory exists
+  ansible.builtin.file:
+    path: "{{ continue_user_config_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Extract Continue API key from VS Code settings
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - |
+        from pathlib import Path
+        import re
+        import sys
+
+        text = Path(sys.argv[1]).read_text()
+        for pattern in (
+            r'"continue\.apiKey"\s*:\s*"([^"]+)"',
+            r'"roo\.code\.apiKey"\s*:\s*"([^"]+)"',
+        ):
+            match = re.search(pattern, text)
+            if match:
+                print(match.group(1))
+                raise SystemExit(0)
+        raise SystemExit(1)
+      - "{{ vscode_user_settings_path }}"
+  register: continue_api_key_lookup
+  changed_when: false
+  failed_when: false
+
+- name: Set Continue API key fact
+  ansible.builtin.set_fact:
+    continue_api_key: "{{ continue_api_key_lookup.stdout | trim }}"
+
+- name: Render Continue config
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ continue_config_path }}"
+    mode: "0644"

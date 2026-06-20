@@ -1,0 +1,10 @@
+services:
+  playwright-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: playwright-mcp
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    shm_size: "1gb"

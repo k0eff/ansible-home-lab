@@ -106,6 +106,11 @@
   tags:
     - headroom_stack
 
+- name: Import Playwright MCP setup
+  import_tasks: playwright-mcp.yaml
+  tags:
+    - playwright_mcp_stack
+
 - name: Verify connectivity and open ports
   ansible.builtin.command: "{{ playbook_dir }}/verify_vm700.sh"
   delegate_to: localhost
@@ -120,5 +125,4 @@
 
 - name: Import RocketChat setup
   import_tasks: rocketchat.yaml
-
 

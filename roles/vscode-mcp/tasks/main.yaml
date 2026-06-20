@@ -1,0 +1,18 @@
+---
+- name: Define VS Code user config path
+  ansible.builtin.set_fact:
+    vscode_user_config_dir: "{{ lookup('env', 'HOME') }}/Library/Application Support/Code/User"
+    vscode_mcp_config_path: "{{ lookup('env', 'HOME') }}/Library/Application Support/Code/User/mcp.json"
+    playwright_mcp_url: "http://192.168.31.152:8080/sse"
+
+- name: Ensure VS Code user config directory exists
+  ansible.builtin.file:
+    path: "{{ vscode_user_config_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Render VS Code MCP config
+  ansible.builtin.template:
+    src: mcp.json.j2
+    dest: "{{ vscode_mcp_config_path }}"
+    mode: "0644"

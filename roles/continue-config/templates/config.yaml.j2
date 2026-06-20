@@ -1,0 +1,32 @@
+name: Main Config
+version: 1.0.0
+schema: v1
+models:
+  - name: Headroom GPT-OSS 120B
+    provider: openai
+    apiBase: http://192.168.31.152:8787/v1
+{% if continue_api_key | length > 0 %}
+    apiKey: {{ continue_api_key | to_json }}
+{% endif %}
+    model: openai/gpt-oss-120b:free
+    roles:
+      - chat
+      - edit
+      - apply
+    capabilities:
+      - tool_use
+    useResponsesApi: false
+  - name: Qwen2.5-Coder 1.5B
+    provider: ollama
+    model: qwen2.5-coder:1.5b-base
+    roles:
+      - autocomplete
+  - name: Nomic Embed
+    provider: ollama
+    model: nomic-embed-text:latest
+    roles:
+      - embed
+mcpServers:
+  - name: Playwright
+    type: sse
+    url: http://192.168.31.152:8080/sse
