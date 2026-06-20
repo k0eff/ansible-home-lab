@@ -1,0 +1,51 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: headroom-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - "{{ headroom_data_dir }}/qdrant/storage:/qdrant/storage"
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: headroom-litellm
+    restart: unless-stopped
+    depends_on:
+      - qdrant
+    ports:
+      - "4000:4000"
+    env_file:
+      - ./litellm.env
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_BASE: http://qdrant:6333
+      QDRANT_COLLECTION_NAME: litellm_semantic_cache
+      QDRANT_SIMILARITY_THRESHOLD: "0.80"
+      QDRANT_EMBEDDING_MODEL: openai/text-embedding-3-small
+      QDRANT_VECTOR_SIZE: "1536"
+    volumes:
+      - ./litellm-bootstrap.py:/opt/headroom/litellm-bootstrap.py:ro
+    command:
+      - python
+      - /opt/headroom/litellm-bootstrap.py
+
+  headroom:
+    image: ghcr.io/chopratejas/headroom:latest
+    container_name: headroom-proxy
+    restart: unless-stopped
+    depends_on:
+      - litellm
+    ports:
+      - "8787:8787"
+    environment:
+      HEADROOM_HOST: "0.0.0.0"
+      HEADROOM_PORT: "8787"
+      HEADROOM_MODE: "cache"
+      HEADROOM_TELEMETRY: "off"
+      HEADROOM_WORKSPACE_DIR: "/root/.headroom"
+      OPENAI_TARGET_API_URL: "http://litellm:4000/v1"
+      ANTHROPIC_TARGET_API_URL: "http://litellm:4000"
+    volumes:
+      - "{{ headroom_data_dir }}/headroom:/root/.headroom"

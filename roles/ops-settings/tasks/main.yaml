@@ -98,6 +98,13 @@
 
 - name: Import Portainer setup
   import_tasks: portainer.yaml
+  tags:
+    - portainer_stack
+
+- name: Import Headroom + LiteLLM + Qdrant setup
+  import_tasks: headroom.yaml
+  tags:
+    - headroom_stack
 
 - name: Verify connectivity and open ports
   ansible.builtin.command: "{{ playbook_dir }}/verify_vm700.sh"
@@ -113,7 +120,5 @@
 
 - name: Import RocketChat setup
   import_tasks: rocketchat.yaml
-
-
 
 

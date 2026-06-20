@@ -1,0 +1,70 @@
+---
+- name: Define Headroom stack paths
+  ansible.builtin.set_fact:
+    headroom_stack_dir: /opt/headroom
+    headroom_data_dir: /var/lib/docker-data/headroom
+
+- name: Ensure Headroom stack directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ headroom_stack_dir }}", mode: "0755" }
+    - { path: "{{ headroom_data_dir }}", mode: "0755" }
+    - { path: "{{ headroom_data_dir }}/qdrant", mode: "0777" }
+    - { path: "{{ headroom_data_dir }}/qdrant/storage", mode: "0777" }
+    - { path: "{{ headroom_data_dir }}/headroom", mode: "0755" }
+    - { path: "{{ headroom_data_dir }}/litellm", mode: "0755" }
+
+- name: Ensure LiteLLM master key exists on remote host
+  ansible.builtin.shell: |
+    set -eu
+    secret_file="{{ headroom_data_dir }}/litellm.masterkey"
+    if [ ! -f "$secret_file" ]; then
+      umask 077
+      openssl rand -base64 48 | tr -d '\n' > "$secret_file"
+    fi
+  args:
+    creates: "{{ headroom_data_dir }}/litellm.masterkey"
+
+- name: Read LiteLLM master key from remote host
+  ansible.builtin.slurp:
+    src: "{{ headroom_data_dir }}/litellm.masterkey"
+  register: headroom_litellm_master_key_file
+
+- name: Set LiteLLM master key fact
+  ansible.builtin.set_fact:
+    headroom_litellm_master_key: "{{ headroom_litellm_master_key_file.content | b64decode | trim }}"
+
+- name: Render LiteLLM env file
+  ansible.builtin.template:
+    src: headroom/litellm.env.j2
+    dest: "{{ headroom_stack_dir }}/litellm.env"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Copy LiteLLM bootstrap script
+  ansible.builtin.copy:
+    src: headroom/litellm-bootstrap.py
+    dest: "{{ headroom_stack_dir }}/litellm-bootstrap.py"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render Headroom compose file
+  ansible.builtin.template:
+    src: headroom/docker-compose.yml.j2
+    dest: "{{ headroom_stack_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Start Headroom + LiteLLM + Qdrant stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ headroom_stack_dir }}"
+    state: present
+    pull: always
