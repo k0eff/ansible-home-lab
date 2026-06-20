@@ -1,0 +1,33 @@
+model_list:
+  - model_name: openrouter/free
+    litellm_params:
+      model: openrouter/free
+  - model_name: openai/gpt-oss-120b:free
+    litellm_params:
+      model: openrouter/openai/gpt-oss-120b:free
+  - model_name: google/gemma-4-31b-it:free
+    litellm_params:
+      model: openrouter/google/gemma-4-31b-it:free
+  - model_name: nvidia/nemotron-3-ultra-550b-a55b:free
+    litellm_params:
+      model: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+  - model_name: nex-agi/nex-n2-pro:free
+    litellm_params:
+      model: openrouter/nex-agi/nex-n2-pro:free
+  - model_name: poolside/laguna-m.1:free
+    litellm_params:
+      model: openrouter/poolside/laguna-m.1:free
+  - model_name: nvidia/nemotron-3-super-120b-a12b:free
+    litellm_params:
+      model: openrouter/nvidia/nemotron-3-super-120b-a12b:free
+  - model_name: poolside/laguna-xs.2:free
+    litellm_params:
+      model: openrouter/poolside/laguna-xs.2:free
+  - model_name: openai/gpt-oss-20b:free
+    litellm_params:
+      model: openrouter/openai/gpt-oss-20b:free
+general_settings:
+  master_key: {{ headroom_litellm_master_key | to_json }}
+
+litellm_settings:
+  drop_params: true

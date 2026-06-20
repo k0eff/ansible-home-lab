@@ -47,13 +47,13 @@
     group: root
     mode: "0600"
 
-- name: Copy LiteLLM bootstrap script
-  ansible.builtin.copy:
-    src: headroom/litellm-bootstrap.py
-    dest: "{{ headroom_stack_dir }}/litellm-bootstrap.py"
+- name: Render LiteLLM config file
+  ansible.builtin.template:
+    src: headroom/litellm-config.yaml.j2
+    dest: "{{ headroom_stack_dir }}/litellm-config.yaml"
     owner: root
     group: root
-    mode: "0755"
+    mode: "0644"
 
 - name: Render Headroom compose file
   ansible.builtin.template:

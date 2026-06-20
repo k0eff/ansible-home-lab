@@ -26,10 +26,14 @@ services:
       QDRANT_EMBEDDING_MODEL: openai/text-embedding-3-small
       QDRANT_VECTOR_SIZE: "1536"
     volumes:
-      - ./litellm-bootstrap.py:/opt/headroom/litellm-bootstrap.py:ro
+      - ./litellm-config.yaml:/opt/headroom/litellm-config.yaml:ro
     command:
-      - python
-      - /opt/headroom/litellm-bootstrap.py
+      - --config
+      - /opt/headroom/litellm-config.yaml
+      - --host
+      - 0.0.0.0
+      - --port
+      - "4000"
 
   headroom:
     image: ghcr.io/chopratejas/headroom:latest
