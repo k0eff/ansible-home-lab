@@ -1,4 +1,20 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: headroom-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: "{{ litellm_db_password }}"
+      POSTGRES_DB: litellm
+    volumes:
+      - "{{ headroom_data_dir }}/postgres:/var/lib/postgresql/data"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: headroom-qdrant
@@ -13,7 +29,10 @@ services:
     container_name: headroom-litellm
     restart: unless-stopped
     depends_on:
-      - qdrant
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
     ports:
       - "4000:4000"
     env_file:
@@ -28,6 +47,7 @@ services:
       PROMETHEUS_URL: http://prometheus:9090
       UI_USERNAME: "{{ litellm_ui_username | default('admin') }}"
       UI_PASSWORD: "{{ litellm_ui_password }}"
+      DATABASE_URL: "postgresql://litellm:{{ litellm_db_password }}@postgres:5432/litellm"
     volumes:
       - ./litellm-config.yaml:/opt/headroom/litellm-config.yaml:ro
       - "{{ headroom_data_dir }}/litellm:/app/db"
