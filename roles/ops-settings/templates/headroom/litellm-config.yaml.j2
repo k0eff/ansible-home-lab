@@ -28,6 +28,12 @@ model_list:
       model: openrouter/openai/gpt-oss-20b:free
 general_settings:
   master_key: {{ headroom_litellm_master_key | to_json }}
+  store_model_in_db: true
 
 litellm_settings:
   drop_params: true
+  success_callback:
+    - prometheus
+
+router_settings:
+  enable_pre_call_checks: true

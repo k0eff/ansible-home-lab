@@ -18,6 +18,8 @@
     - { path: "{{ headroom_data_dir }}/qdrant/storage", mode: "0777" }
     - { path: "{{ headroom_data_dir }}/headroom", mode: "0755" }
     - { path: "{{ headroom_data_dir }}/litellm", mode: "0755" }
+    - { path: "{{ headroom_data_dir }}/prometheus", mode: "0777" }
+    - { path: "{{ headroom_data_dir }}/grafana", mode: "0777" }
 
 - name: Ensure LiteLLM master key exists on remote host
   ansible.builtin.shell: |
@@ -51,6 +53,38 @@
   ansible.builtin.template:
     src: headroom/litellm-config.yaml.j2
     dest: "{{ headroom_stack_dir }}/litellm-config.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Render Prometheus config
+  ansible.builtin.template:
+    src: headroom/prometheus.yml.j2
+    dest: "{{ headroom_stack_dir }}/prometheus.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Render Grafana datasources
+  ansible.builtin.template:
+    src: headroom/grafana-datasources.yaml.j2
+    dest: "{{ headroom_stack_dir }}/grafana-datasources.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Render Grafana dashboard provisioner
+  ansible.builtin.template:
+    src: headroom/grafana-dashboards.yaml.j2
+    dest: "{{ headroom_stack_dir }}/grafana-dashboards.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Render LiteLLM Grafana dashboard
+  ansible.builtin.template:
+    src: headroom/grafana-dashboard-litellm.json.j2
+    dest: "{{ headroom_stack_dir }}/grafana-dashboard-litellm.json"
     owner: root
     group: root
     mode: "0644"
