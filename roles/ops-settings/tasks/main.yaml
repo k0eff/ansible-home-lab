@@ -47,23 +47,21 @@
     owner: "{{ default_user }}"
     group: "{{ default_user }}"
 
-  # Ensure the VS Code user settings directory exists for the target user
-  - name: Ensure VS Code user settings directory
-    ansible.builtin.file:
-      path: /home/{{ default_user }}/Library/Application Support/Code/User
-      state: directory
-      owner: "{{ default_user }}"
-      group: "{{ default_user }}"
-      mode: '0700'
+- name: Ensure VS Code user settings directory
+  ansible.builtin.file:
+    path: /home/{{ default_user }}/Library/Application Support/Code/User
+    state: directory
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
+    mode: '0700'
 
-  # Copy chatLanguageModels.json from the protected repository (passwords are stored there)
-  - name: Deploy chatLanguageModels.json (protected)
-    copy:
-      src: '../../../protected/chatLanguageModels.json'
-      dest: "/home/{{ default_user }}/Library/Application Support/Code/User/chatLanguageModels.json"
-      owner: "{{ default_user }}"
-      group: "{{ default_user }}"
-      mode: '0600'
+- name: Deploy chatLanguageModels.json (protected)
+  copy:
+    src: '../../../protected/chatLanguageModels.json'
+    dest: "/home/{{ default_user }}/Library/Application Support/Code/User/chatLanguageModels.json"
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
+    mode: '0600'
 
 - name: Keys1
   copy:
@@ -128,6 +126,31 @@
   import_tasks: playwright-mcp.yaml
   tags:
     - playwright_mcp_stack
+
+- name: Verify Playwright‑MCP Docker image builds and contains Chromium
+  block:
+    - name: Build Playwright‑MCP Docker image on localhost
+      community.docker.docker_image:
+        name: playwright-mcp-test
+        source: build
+        build:
+          path: "{{ playbook_dir }}/../.."
+          dockerfile: "roles/ops-settings/templates/playwright-mcp/Dockerfile.j2"
+      delegate_to: localhost
+
+    - name: Run container to check Chromium binary on localhost
+      community.docker.docker_container:
+        name: playwright-mcp-test-check
+        image: playwright-mcp-test
+        command: which chromium-browser
+        detach: false
+        remove: true
+      register: chromium_check
+      delegate_to: localhost
+
+    - name: Show Chromium check result
+      debug:
+        msg: "Chromium binary location: {{ chromium_check.stdout }}"
 
 - name: Verify connectivity and open ports
   ansible.builtin.command: "{{ playbook_dir }}/verify_vm700.sh"

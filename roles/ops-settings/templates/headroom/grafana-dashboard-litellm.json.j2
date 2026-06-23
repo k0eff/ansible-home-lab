@@ -94,7 +94,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "expr": "sum by (model) (rate(litellm_requests_metric_total[5m]))",
-          "legendFormat": "{{ model }}"
+          "legendFormat": "{{ "{{" }} model {{ "}}" }}"
         }
       ]
     },
@@ -113,7 +113,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "expr": "sum by (model) (rate(litellm_tokens_used_total[5m]))",
-          "legendFormat": "{{ model }}"
+          "legendFormat": "{{ "{{" }} model {{ "}}" }}"
         }
       ]
     },
@@ -132,12 +132,12 @@
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "expr": "histogram_quantile(0.50, sum by (le, model) (rate(litellm_request_total_latency_metric_bucket[5m])))",
-          "legendFormat": "p50 {{ model }}"
+          "legendFormat": "p50 {{ "{{" }} model {{ "}}" }}"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "expr": "histogram_quantile(0.95, sum by (le, model) (rate(litellm_request_total_latency_metric_bucket[5m])))",
-          "legendFormat": "p95 {{ model }}"
+          "legendFormat": "p95 {{ "{{" }} model {{ "}}" }}"
         }
       ]
     },
@@ -156,7 +156,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
           "expr": "sum by (model) (rate(litellm_deployment_failure_responses_total[5m]))",
-          "legendFormat": "{{ model }}"
+          "legendFormat": "{{ "{{" }} model {{ "}}" }}"
         }
       ]
     }
