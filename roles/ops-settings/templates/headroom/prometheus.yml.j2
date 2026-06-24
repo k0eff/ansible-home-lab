@@ -7,8 +7,6 @@ scrape_configs:
     static_configs:
       - targets: ["litellm:4000"]
     metrics_path: /metrics
-    authorization:
-      credentials: {{ headroom_litellm_master_key | to_json }}
 
   - job_name: headroom
     static_configs:

@@ -27,7 +27,6 @@ model_list:
     litellm_params:
       model: openrouter/openai/gpt-oss-20b:free
 general_settings:
-  master_key: {{ headroom_litellm_master_key | to_json }}
   store_model_in_db: true
 
 litellm_settings:
@@ -45,8 +44,7 @@ litellm_settings:
     - path: "/anthropic/{endpoint:path}"
       target: "https://api.anthropic.com/{endpoint}"
       forward_headers: true
-      no_auth: true   # required: claude.ai OAuth token is forwarded directly to Anthropic,
-                      # it is not a valid LiteLLM master key — home lab only, not public
+      # no master_key configured — home lab only, not exposed externally
 
 router_settings:
   enable_pre_call_checks: true
