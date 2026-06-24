@@ -28,6 +28,7 @@ model_list:
       model: openrouter/openai/gpt-oss-20b:free
 general_settings:
   store_model_in_db: true
+  no_auth: True   # home lab only — LiteLLM is on private network, not exposed externally
 
 litellm_settings:
   drop_params: true
