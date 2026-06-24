@@ -124,6 +124,14 @@
     group: root
     mode: "0644"
 
+- name: Render nginx-ingest config
+  ansible.builtin.template:
+    src: headroom/nginx-ingest.conf.j2
+    dest: "{{ ai_stack_dir }}/nginx-ingest.conf"
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: Render AI stack compose file
   ansible.builtin.template:
     src: headroom/docker-compose.yml.j2
