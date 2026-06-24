@@ -34,6 +34,17 @@ litellm_settings:
   drop_params: true
   success_callback:
     - prometheus
+  # Anthropic passthrough — forwards /anthropic/* to api.anthropic.com
+  # with the original Authorization header (claude.ai subscription token).
+  # Enables Claude Code traffic routing through Headroom (compression)
+  # without incurring Anthropic API billing.
+  #
+  # Known Claude Code model IDs (as of 2026-06):
+  #   claude-opus-4-8, claude-sonnet-4-6, claude-haiku-4-5-20251001
+  passthrough_endpoints:
+    - path: "/anthropic/{endpoint:path}"
+      target: "https://api.anthropic.com/{endpoint}"
+      forward_headers: true
 
 router_settings:
   enable_pre_call_checks: true

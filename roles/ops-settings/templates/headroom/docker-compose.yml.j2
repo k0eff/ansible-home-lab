@@ -107,6 +107,6 @@ services:
       HEADROOM_TELEMETRY: "off"
       HEADROOM_WORKSPACE_DIR: "/root/.headroom"
       OPENAI_TARGET_API_URL: "http://litellm:4000/v1"
-      ANTHROPIC_TARGET_API_URL: "http://litellm:4000"
+      ANTHROPIC_TARGET_API_URL: "http://litellm:4000/anthropic"
     volumes:
       - "{{ headroom_data_dir }}/headroom:/root/.headroom"
