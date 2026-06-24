@@ -53,6 +53,11 @@ litellm_settings:
   cache: true
   cache_params:
     type: "qdrant-semantic"
+    qdrant_api_base: "http://qdrant:6333"
+    qdrant_collection_name: "litellm_semantic_cache"
+    similarity_threshold: 0.80
+    qdrant_semantic_cache_embedding_model: "ollama/qwen3-embedding:0.6b"
+    qdrant_semantic_cache_vector_size: 1024
   success_callback:
     - prometheus
 
