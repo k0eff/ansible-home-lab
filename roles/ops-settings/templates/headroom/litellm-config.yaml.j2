@@ -1,4 +1,17 @@
 model_list:
+  # Claude models — api_key intentionally omitted; forwarded via x-api-key header
+  # (forward_llm_provider_auth_headers: true in general_settings)
+  - model_name: claude-opus-4-8
+    litellm_params:
+      model: anthropic/claude-opus-4-8
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+  - model_name: claude-haiku-4-5-20251001
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+
+  # OpenRouter free models
   - model_name: openrouter/free
     litellm_params:
       model: openrouter/free
@@ -26,26 +39,22 @@ model_list:
   - model_name: openai/gpt-oss-20b:free
     litellm_params:
       model: openrouter/openai/gpt-oss-20b:free
+
 general_settings:
-  store_model_in_db: true
-  no_auth: True   # home lab only — LiteLLM is on private network, not exposed externally
+  # LITELLM_MASTER_KEY is read from litellm.env (auto-generated on first deploy)
+  # forward_llm_provider_auth_headers: client's x-api-key is forwarded to Anthropic
+  forward_client_headers_to_llm_api: true
+  forward_llm_provider_auth_headers: true
 
 litellm_settings:
   drop_params: true
+  # Semantic cache via Qdrant — connection params come from env (QDRANT_URL, etc.)
+  # Requires OPENAI_API_KEY in litellm.env for text-embedding-3-small
+  cache: true
+  cache_params:
+    type: "qdrant-semantic"
   success_callback:
     - prometheus
-  # Anthropic passthrough — forwards /anthropic/* to api.anthropic.com
-  # with the original Authorization header (claude.ai subscription token).
-  # Enables Claude Code traffic routing through Headroom (compression)
-  # without incurring Anthropic API billing.
-  #
-  # Known Claude Code model IDs (as of 2026-06):
-  #   claude-opus-4-8, claude-sonnet-4-6, claude-haiku-4-5-20251001
-  passthrough_endpoints:
-    - path: "/anthropic/{endpoint:path}"
-      target: "https://api.anthropic.com/{endpoint}"
-      forward_headers: true
-      # no master_key configured — home lab only, not exposed externally
 
 router_settings:
   enable_pre_call_checks: true
