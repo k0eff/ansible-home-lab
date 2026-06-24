@@ -17,6 +17,13 @@ services:
       timeout: 5s
       retries: 5
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: koeff-ai-stack-ollama
+    restart: unless-stopped
+    volumes:
+      - "{{ ai_stack_data_dir }}/ollama:/root/.ollama"
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: koeff-ai-stack-qdrant
@@ -35,6 +42,8 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_started
+      ollama:
+        condition: service_started
     ports:
       - "4000:4000"
     env_file:
@@ -44,18 +53,19 @@ services:
       QDRANT_API_BASE: http://qdrant:6333
       QDRANT_COLLECTION_NAME: litellm_semantic_cache
       QDRANT_SIMILARITY_THRESHOLD: "0.80"
-      QDRANT_EMBEDDING_MODEL: openai/text-embedding-3-small
-      QDRANT_VECTOR_SIZE: "1536"
+      QDRANT_EMBEDDING_MODEL: ollama/qwen3-embedding:0.6b
+      QDRANT_VECTOR_SIZE: "1024"
+      OLLAMA_API_BASE: http://ollama:11434
       PROMETHEUS_URL: http://prometheus:9090
       UI_USERNAME: "{{ litellm_ui_username | default('admin') }}"
       UI_PASSWORD: "{{ litellm_ui_password }}"
       DATABASE_URL: "postgresql://litellm:{{ litellm_db_password }}@postgres:5432/litellm"
     volumes:
-      - ./litellm-config.yaml:/opt/headroom/litellm-config.yaml:ro
+      - ./litellm-config.yaml:/opt/litellm-config.yaml:ro
       - "{{ ai_stack_data_dir }}/litellm:/app/db"
     command:
       - --config
-      - /opt/headroom/litellm-config.yaml
+      - /opt/litellm-config.yaml
       - --host
       - 0.0.0.0
       - --port

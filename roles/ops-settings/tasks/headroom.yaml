@@ -4,40 +4,6 @@
     ai_stack_dir: /opt/koeff-ai-stack
     ai_stack_data_dir: /var/lib/docker-data/koeff-ai-stack
 
-- name: Migrate data from old headroom directories if they exist
-  ansible.builtin.shell: |
-    set -e
-    OLD_STACK="/opt/headroom"
-    OLD_DATA="/var/lib/docker-data/headroom"
-    NEW_DATA="/var/lib/docker-data/koeff-ai-stack"
-
-    if [ -f "$OLD_STACK/docker-compose.yml" ]; then
-      docker compose -p headroom -f "$OLD_STACK/docker-compose.yml" down 2>/dev/null || true
-    fi
-
-    for subdir in postgres qdrant grafana prometheus litellm headroom ollama; do
-      src="$OLD_DATA/$subdir"
-      dst="$NEW_DATA/$subdir"
-      if [ -d "$src" ] && [ "$(ls -A $src 2>/dev/null)" ]; then
-        if [ ! "$(ls -A $dst 2>/dev/null)" ]; then
-          cp -a "$src/." "$dst/"
-          echo "migrated: $subdir"
-        else
-          echo "skipped (dst not empty): $subdir"
-        fi
-      fi
-    done
-
-    if [ -f "$OLD_DATA/litellm.masterkey" ] && [ ! -f "$NEW_DATA/litellm.masterkey" ]; then
-      cp "$OLD_DATA/litellm.masterkey" "$NEW_DATA/litellm.masterkey"
-      chmod 600 "$NEW_DATA/litellm.masterkey"
-      echo "migrated: masterkey"
-    fi
-  args:
-    executable: /bin/bash
-  changed_when: true
-  ignore_errors: true
-
 - name: Ensure AI stack directories exist
   ansible.builtin.file:
     path: "{{ item.path }}"
@@ -55,8 +21,47 @@
     - { path: "{{ ai_stack_data_dir }}/prometheus", mode: "0777" }
     - { path: "{{ ai_stack_data_dir }}/grafana", mode: "0777" }
     - { path: "{{ ai_stack_data_dir }}/postgres", mode: "0755" }
+    - { path: "{{ ai_stack_data_dir }}/ollama", mode: "0755" }
 
-- name: Ensure LiteLLM master key exists on remote host
+- name: Migrate data from old headroom directories if they exist
+  ansible.builtin.shell: |
+    set -e
+    OLD_STACK="/opt/headroom"
+    OLD_DATA="/var/lib/docker-data/headroom"
+    NEW_STACK="/opt/koeff-ai-stack"
+    NEW_DATA="/var/lib/docker-data/koeff-ai-stack"
+
+    # Stop old stack if running
+    if [ -f "$OLD_STACK/docker-compose.yml" ]; then
+      docker compose -p headroom -f "$OLD_STACK/docker-compose.yml" down 2>/dev/null || true
+    fi
+
+    # Migrate persistent data volumes (skip if already migrated or source missing)
+    for subdir in postgres qdrant grafana prometheus litellm headroom ollama; do
+      src="$OLD_DATA/$subdir"
+      dst="$NEW_DATA/$subdir"
+      if [ -d "$src" ] && [ "$(ls -A $src 2>/dev/null)" ]; then
+        if [ ! "$(ls -A $dst 2>/dev/null)" ]; then
+          cp -a "$src/." "$dst/"
+          echo "migrated: $subdir"
+        else
+          echo "skipped (dst not empty): $subdir"
+        fi
+      fi
+    done
+
+    # Migrate master key
+    if [ -f "$OLD_DATA/litellm.masterkey" ] && [ ! -f "$NEW_DATA/litellm.masterkey" ]; then
+      cp "$OLD_DATA/litellm.masterkey" "$NEW_DATA/litellm.masterkey"
+      chmod 600 "$NEW_DATA/litellm.masterkey"
+      echo "migrated: masterkey"
+    fi
+  args:
+    executable: /bin/bash
+  changed_when: true
+  ignore_errors: true
+
+- name: Ensure LiteLLM master key exists
   ansible.builtin.shell: |
     set -eu
     secret_file="{{ ai_stack_data_dir }}/litellm.masterkey"
@@ -67,14 +72,14 @@
   args:
     creates: "{{ ai_stack_data_dir }}/litellm.masterkey"
 
-- name: Read LiteLLM master key from remote host
+- name: Read LiteLLM master key
   ansible.builtin.slurp:
     src: "{{ ai_stack_data_dir }}/litellm.masterkey"
-  register: headroom_litellm_master_key_file
+  register: ai_stack_litellm_master_key_file
 
 - name: Set LiteLLM master key fact
   ansible.builtin.set_fact:
-    headroom_litellm_master_key: "{{ headroom_litellm_master_key_file.content | b64decode | trim }}"
+    headroom_litellm_master_key: "{{ ai_stack_litellm_master_key_file.content | b64decode | trim }}"
 
 - name: Render LiteLLM env file
   ansible.builtin.template:
@@ -145,3 +150,10 @@
     project_src: "{{ ai_stack_dir }}"
     state: present
     pull: always
+
+- name: Pull qwen3-embedding model into Ollama
+  community.docker.docker_container_exec:
+    container: koeff-ai-stack-ollama
+    command: ollama pull qwen3-embedding:0.6b
+  register: ollama_pull
+  changed_when: "'already up to date' not in ollama_pull.stdout"
