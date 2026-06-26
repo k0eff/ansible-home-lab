@@ -103,6 +103,7 @@ services:
       - ./grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
       - ./grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
       - ./grafana-dashboard-litellm.json:/var/lib/grafana/dashboards/litellm.json:ro
+      - ./grafana-dashboard-headroom.json:/var/lib/grafana/dashboards/headroom.json:ro
 
   nginx-ingest:
     image: nginx:alpine
@@ -124,10 +125,14 @@ services:
     environment:
       HEADROOM_HOST: "0.0.0.0"
       HEADROOM_PORT: "8787"
-      HEADROOM_MODE: "cache"
+      HEADROOM_MODE: "token"
       HEADROOM_TELEMETRY: "off"
       HEADROOM_WORKSPACE_DIR: "/root/.headroom"
+      HEADROOM_COMPRESSION_STABLE_AFTER_TURN: "3"
+      HEADROOM_STALE_READ_COMPRESS_AFTER_TURNS: "1"
       OPENAI_TARGET_API_URL: "http://litellm:4000/v1"
       ANTHROPIC_TARGET_API_URL: "http://nginx-ingest:80"
+      HEADROOM_ANTHROPIC_PRE_UPSTREAM_CONCURRENCY: "10"
+      HEADROOM_ANTHROPIC_PRE_UPSTREAM_ACQUIRE_TIMEOUT_SECONDS: "120"
     volumes:
       - "{{ ai_stack_data_dir }}/headroom:/root/.headroom"
