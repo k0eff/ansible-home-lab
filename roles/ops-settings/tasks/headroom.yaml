@@ -129,6 +129,14 @@
     group: root
     mode: "0644"
 
+- name: Render Headroom Grafana dashboard
+  ansible.builtin.template:
+    src: headroom/grafana-dashboard-headroom.json.j2
+    dest: "{{ ai_stack_dir }}/grafana-dashboard-headroom.json"
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: Render nginx-ingest config
   ansible.builtin.template:
     src: headroom/nginx-ingest.conf.j2
