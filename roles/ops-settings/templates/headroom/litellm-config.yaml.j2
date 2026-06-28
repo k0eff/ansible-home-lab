@@ -1,6 +1,5 @@
 model_list:
-  # Claude models — api_key intentionally omitted; forwarded via x-api-key header
-  # (forward_llm_provider_auth_headers: true in general_settings)
+  # Claude models via Anthropic directly — client auth forwarded as x-api-key (BYOK via nginx-ingest)
   - model_name: claude-opus-4-8
     litellm_params:
       model: anthropic/claude-opus-4-8
@@ -42,7 +41,7 @@ model_list:
 
 general_settings:
   # LITELLM_MASTER_KEY is read from litellm.env (auto-generated on first deploy)
-  # forward_llm_provider_auth_headers: client's x-api-key is forwarded to Anthropic
+  master_key: "{{ headroom_litellm_master_key }}"
   forward_client_headers_to_llm_api: true
   forward_llm_provider_auth_headers: true
 
