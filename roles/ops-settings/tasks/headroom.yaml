@@ -137,6 +137,19 @@
     group: root
     mode: "0644"
 
+- name: Ensure Grafana dashboards data directory
+  ansible.builtin.file:
+    path: "{{ ai_stack_data_dir }}/grafana/dashboards"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Copy dashboard files to Grafana data volume
+  ansible.builtin.shell: |
+    cp {{ ai_stack_dir }}/grafana-dashboard-*.json {{ ai_stack_data_dir }}/grafana/dashboards/
+  changed_when: true
+
 - name: Render nginx-ingest config
   ansible.builtin.template:
     src: headroom/nginx-ingest.conf.j2
