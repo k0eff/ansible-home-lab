@@ -16,5 +16,6 @@
       "No .local or .com DNS names in scrape_configs"
     ]
   },
-  "status": "pending"
+  "status": "disabled",
+  "disabled_reason": "Superseded by eval 010 (prometheus-dns-hostnames): DNS approach (litellm.local.koeff.com) required for cross-network Prometheus scraping. Docker service names only work within container network."
 }
