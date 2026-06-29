@@ -18,5 +18,6 @@
       "Container health status is healthy after all targets connect"
     ]
   },
-  "status": "pending"
+  "status": "disabled",
+  "disabled_reason": "Merged into eval 010 (prometheus-dns-targets-with-health): Health check is part of the unified DNS + health configuration."
 }

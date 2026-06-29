@@ -1,20 +1,27 @@
 {
   "id": "010",
-  "name": "monitoring--prometheus-dns-hostnames",
+  "name": "monitoring--prometheus-dns-targets-with-health",
   "category": "monitoring",
-  "description": "Prometheus scrape targets use DNS hostnames instead of Docker service names for cross-network resolution",
+  "description": "Prometheus configured with DNS scrape targets and health check validation",
   "implementation": {
-    "file": "roles/ops-settings/templates/headroom/prometheus.yml.j2",
-    "change": "Replace Docker service names (litellm, headroom, qdrant) with fully qualified DNS hostnames (litellm.local.koeff.com, headroom.local.koeff.com, qdrant.local.koeff.com)"
+    "files": [
+      "roles/ops-settings/templates/headroom/prometheus.yml.j2",
+      "roles/ops-settings/templates/headroom/docker-compose.yml.j2"
+    ],
+    "changes": [
+      "Replace Docker service names with fully qualified DNS hostnames (litellm.local.koeff.com, headroom.local.koeff.com, qdrant.local.koeff.com)",
+      "Add Prometheus healthcheck to docker-compose: /-/healthy endpoint with 10s interval, 5s timeout, 3 retries"
+    ]
   },
   "validation": {
-    "type": "config_exists",
+    "type": "config_and_health",
     "checks": [
-      "prometheus.yml contains targets: [\"litellm.local.koeff.com:4000\"] for litellm job",
-      "prometheus.yml contains targets: [\"headroom.local.koeff.com:8787\"] for headroom job",
-      "prometheus.yml contains targets: [\"qdrant.local.koeff.com:6333\"] for qdrant job",
-      "No Docker service names (litellm:, headroom:, qdrant:) remain in scrape_configs",
-      "Prometheus container can resolve DNS hostnames via host network or external DNS"
+      "prometheus.yml contains DNS targets: litellm.local.koeff.com:4000, headroom.local.koeff.com:8787, qdrant.local.koeff.com:6333",
+      "No Docker service names remain in scrape_configs",
+      "Prometheus healthcheck defined in docker-compose.yml with /-/healthy endpoint",
+      "Prometheus healthcheck interval=10s, timeout=5s, retries=3",
+      "Prometheus container reaches healthy state when all targets connect",
+      "All scrape targets report state=up in Prometheus API"
     ]
   },
   "status": "pending"
