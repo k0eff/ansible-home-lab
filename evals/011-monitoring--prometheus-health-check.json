@@ -1,0 +1,22 @@
+{
+  "id": "011",
+  "name": "monitoring--prometheus-health-check",
+  "category": "monitoring",
+  "description": "Prometheus health check validates all scrape targets are healthy and metrics are being collected",
+  "implementation": {
+    "file": "roles/ops-settings/templates/headroom/docker-compose.yml.j2",
+    "change": "Add healthcheck to Prometheus service: curl -f http://localhost:9090/-/healthy || exit 1"
+  },
+  "validation": {
+    "type": "health_check",
+    "checks": [
+      "Prometheus healthcheck endpoint /-/healthy returns 200 OK",
+      "Prometheus /api/v1/targets returns all targets with state=up",
+      "All three scrape jobs (litellm, headroom, qdrant) have scrape_state=success",
+      "No scrape_duration_seconds errors in target list",
+      "Prometheus /metrics endpoint accessible and returns Prometheus metrics",
+      "Container health status is healthy after all targets connect"
+    ]
+  },
+  "status": "pending"
+}
