@@ -1,0 +1,20 @@
+{
+  "id": "006",
+  "name": "monitoring--metrics-export",
+  "category": "monitoring",
+  "description": "Services export Prometheus metrics on correct ports and paths",
+  "implementation": {
+    "file": "roles/ops-settings/templates/headroom/docker-compose.yml.j2",
+    "change": "Ensure all services expose metrics endpoints: litellm:4000/metrics, headroom:8787/metrics, qdrant:6333/metrics"
+  },
+  "validation": {
+    "type": "port_check",
+    "checks": [
+      "LiteLLM container exposes port 4000 and has /metrics endpoint",
+      "Headroom container exposes port 8787 and has /metrics endpoint",
+      "Qdrant container exposes port 6333 and has /metrics endpoint",
+      "Prometheus can scrape all three targets without errors"
+    ]
+  },
+  "status": "pending"
+}

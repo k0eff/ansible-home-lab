@@ -1,0 +1,19 @@
+{
+  "id": "002",
+  "name": "core--grafana-dashboard-provisioning",
+  "category": "core",
+  "description": "Grafana dashboards provisioned in data volume directory",
+  "implementation": {
+    "file": "roles/ops-settings/tasks/headroom.yaml",
+    "change": "Copy rendered dashboard JSON files to /var/lib/docker-data/koeff-ai-stack/grafana/dashboards/"
+  },
+  "validation": {
+    "type": "file_exists",
+    "checks": [
+      "Task 'Ensure Grafana dashboards data directory' creates /var/lib/docker-data/koeff-ai-stack/grafana/dashboards",
+      "Task 'Copy dashboard files to Grafana data volume' copies grafana-dashboard-*.json files",
+      "Grafana datasources config references provisioning dashboards directory"
+    ]
+  },
+  "status": "pending"
+}

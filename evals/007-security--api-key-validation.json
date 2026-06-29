@@ -1,0 +1,20 @@
+{
+  "id": "007",
+  "name": "security--api-key-validation",
+  "category": "security",
+  "description": "API keys validated before reaching LiteLLM backend",
+  "implementation": {
+    "file": "roles/ops-settings/templates/headroom/docker-compose.yml.j2",
+    "change": "Headroom validates keys with HEADROOM_MODE: token and passes Authorization header to upstream"
+  },
+  "validation": {
+    "type": "auth_header",
+    "checks": [
+      "Headroom runs in token mode (HEADROOM_MODE=token)",
+      "Requests with missing API key are rejected by Headroom",
+      "Valid keys are forwarded to ANTHROPIC_TARGET_API_URL (nginx-ingest)",
+      "Authorization header format: Bearer <key> is preserved"
+    ]
+  },
+  "status": "pending"
+}

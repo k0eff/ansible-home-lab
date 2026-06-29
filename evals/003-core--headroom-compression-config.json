@@ -1,0 +1,20 @@
+{
+  "id": "003",
+  "name": "core--headroom-compression-config",
+  "category": "core",
+  "description": "Headroom compression settings configured for token savings",
+  "implementation": {
+    "file": "roles/ops-settings/templates/headroom/docker-compose.yml.j2",
+    "change": "Set HEADROOM_COMPRESSION_STABLE_AFTER_TURN and HEADROOM_STALE_READ_COMPRESS_AFTER_TURNS environment variables"
+  },
+  "validation": {
+    "type": "config_value",
+    "checks": [
+      "HEADROOM_COMPRESSION_STABLE_AFTER_TURN=3 in docker-compose environment",
+      "HEADROOM_STALE_READ_COMPRESS_AFTER_TURNS=1 in docker-compose environment",
+      "HEADROOM_MODE: token is set",
+      "HEADROOM_TELEMETRY: off is set"
+    ]
+  },
+  "status": "pending"
+}

@@ -1,0 +1,20 @@
+{
+  "id": "001",
+  "name": "core--prometheus-dns-scrape",
+  "category": "core",
+  "description": "Prometheus scrape targets use Docker service names instead of DNS hostnames",
+  "implementation": {
+    "file": "roles/ops-settings/templates/headroom/prometheus.yml.j2",
+    "change": "Replace DNS hostnames (e.g., litellm.local) with Docker service names (litellm, headroom, qdrant)"
+  },
+  "validation": {
+    "type": "config_exists",
+    "checks": [
+      "prometheus.yml contains targets: [\"litellm:4000\"]",
+      "prometheus.yml contains targets: [\"headroom:8787\"]",
+      "prometheus.yml contains targets: [\"qdrant:6333\"]",
+      "No .local or .com DNS names in scrape_configs"
+    ]
+  },
+  "status": "pending"
+}

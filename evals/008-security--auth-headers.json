@@ -1,0 +1,20 @@
+{
+  "id": "008",
+  "name": "security--auth-headers",
+  "category": "security",
+  "description": "Auth headers properly passed through nginx-ingest to Headroom",
+  "implementation": {
+    "file": "roles/ops-settings/templates/headroom/nginx-ingest.conf.j2",
+    "change": "nginx-ingest proxy passes Authorization headers to Headroom without modification"
+  },
+  "validation": {
+    "type": "proxy_header",
+    "checks": [
+      "nginx proxy_pass_request_headers is on",
+      "Authorization header is not stripped by nginx",
+      "Request headers are forwarded to http://headroom:8787",
+      "Response from Headroom includes cache headers"
+    ]
+  },
+  "status": "pending"
+}

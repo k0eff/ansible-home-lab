@@ -1,0 +1,22 @@
+{
+  "id": "009",
+  "name": "performance--cache-optimization",
+  "category": "performance",
+  "description": "Qdrant semantic cache configured with correct embedding model and collection",
+  "implementation": {
+    "file": "roles/ops-settings/templates/headroom/docker-compose.yml.j2",
+    "change": "LiteLLM configured to use Qdrant for semantic cache with qwen3-embedding:0.6b model"
+  },
+  "validation": {
+    "type": "cache_config",
+    "checks": [
+      "QDRANT_URL: http://qdrant:6333",
+      "QDRANT_COLLECTION_NAME: litellm_semantic_cache",
+      "QDRANT_EMBEDDING_MODEL: ollama/qwen3-embedding:0.6b",
+      "QDRANT_VECTOR_SIZE: 1024",
+      "QDRANT_SIMILARITY_THRESHOLD: 0.80",
+      "Ollama model qwen3-embedding:0.6b is pulled before LiteLLM starts"
+    ]
+  },
+  "status": "pending"
+}

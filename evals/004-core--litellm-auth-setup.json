@@ -1,0 +1,21 @@
+{
+  "id": "004",
+  "name": "core--litellm-auth-setup",
+  "category": "core",
+  "description": "LiteLLM master key generated and configured for auth",
+  "implementation": {
+    "file": "roles/ops-settings/tasks/headroom.yaml",
+    "change": "Generate master key if missing, read it, set in docker-compose environment and Prometheus auth"
+  },
+  "validation": {
+    "type": "secret_exists",
+    "checks": [
+      "Master key file exists at /var/lib/docker-data/koeff-ai-stack/litellm.masterkey",
+      "File permissions are 0600 (readable only by root)",
+      "Master key is base64-encoded 48-byte random value",
+      "headroom_litellm_master_key fact is set in Ansible",
+      "Prometheus authorization uses master key credentials"
+    ]
+  },
+  "status": "pending"
+}

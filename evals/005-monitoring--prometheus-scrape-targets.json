@@ -1,0 +1,21 @@
+{
+  "id": "005",
+  "name": "monitoring--prometheus-scrape-targets",
+  "category": "monitoring",
+  "description": "Prometheus configured with correct scrape interval and all service targets",
+  "implementation": {
+    "file": "roles/ops-settings/templates/headroom/prometheus.yml.j2",
+    "change": "Configure scrape_interval (15s), evaluation_interval (15s), and job_name entries for litellm, headroom, qdrant"
+  },
+  "validation": {
+    "type": "config_structure",
+    "checks": [
+      "global.scrape_interval = 15s",
+      "global.evaluation_interval = 15s",
+      "Job litellm: metrics_path=/metrics, targets include headroom_litellm_master_key in authorization",
+      "Job headroom: metrics_path=/metrics, targets=[\"headroom:8787\"]",
+      "Job qdrant: metrics_path=/metrics, targets=[\"qdrant:6333\"]"
+    ]
+  },
+  "status": "pending"
+}
