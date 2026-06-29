@@ -102,8 +102,6 @@ services:
       - "{{ ai_stack_data_dir }}/grafana:/var/lib/grafana"
       - ./grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
       - ./grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
-      - ./grafana-dashboard-litellm.json:/var/lib/grafana/dashboards/litellm.json:ro
-      - ./grafana-dashboard-headroom.json:/var/lib/grafana/dashboards/headroom.json:ro
 
   nginx-ingest:
     image: nginx:alpine
