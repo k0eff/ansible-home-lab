@@ -1,0 +1,21 @@
+{
+  "id": "002",
+  "branch": "main",
+  "name": "core--kubespray-kube-proxy-strict-arp",
+  "category": "core",
+  "description": "kubespray k8s-cluster.yml has kube_proxy_strict_arp: true, required for MetalLB/kube-vip ARP mode to function correctly.",
+  "implementation": {
+    "file": "protected/kubespray-settings/cluster00/group_vars/k8s_cluster/k8s-cluster.yml",
+    "changes": [
+      "kube_proxy_strict_arp: false → true (enables ARP strict mode for MetalLB/kube-vip)"
+    ]
+  },
+  "validation": {
+    "type": "config_exists",
+    "checks": [
+      "protected/kubespray-settings/cluster00/group_vars/k8s_cluster/k8s-cluster.yml exists",
+      "File contains 'kube_proxy_strict_arp: true' (not false)"
+    ]
+  },
+  "status": "pass"
+}
