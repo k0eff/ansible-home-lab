@@ -1,5 +1,5 @@
 {
-  "id": "002",
+  "id": "004",
   "name": "core--grafana-dashboard-provisioning",
   "category": "core",
   "description": "Grafana dashboards provisioned in data volume directory",
@@ -15,5 +15,6 @@
       "Grafana datasources config references provisioning dashboards directory"
     ]
   },
-  "status": "pending"
+  "status": "pending",
+  "branch": "main"
 }

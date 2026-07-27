@@ -1,5 +1,5 @@
 {
-  "id": "001",
+  "id": "003",
   "name": "core--prometheus-dns-scrape",
   "category": "core",
   "description": "Prometheus scrape targets use Docker service names instead of DNS hostnames",
@@ -17,5 +17,6 @@
     ]
   },
   "status": "disabled",
-  "disabled_reason": "Superseded by eval 010 (prometheus-dns-hostnames): DNS approach (litellm.local.koeff.com) required for cross-network Prometheus scraping. Docker service names only work within container network."
+  "disabled_reason": "Superseded by eval 010 (prometheus-dns-hostnames): DNS approach (litellm.local.koeff.com) required for cross-network Prometheus scraping. Docker service names only work within container network.",
+  "branch": "main"
 }

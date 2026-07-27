@@ -1,5 +1,5 @@
 {
-  "id": "006",
+  "id": "008",
   "name": "monitoring--metrics-export",
   "category": "monitoring",
   "description": "Services export Prometheus metrics on correct ports and paths",
@@ -16,5 +16,6 @@
       "Prometheus can scrape all three targets without errors"
     ]
   },
-  "status": "pending"
+  "status": "pending",
+  "branch": "main"
 }

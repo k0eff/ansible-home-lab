@@ -1,5 +1,5 @@
 {
-  "id": "009",
+  "id": "011",
   "name": "performance--cache-optimization",
   "category": "performance",
   "description": "Qdrant semantic cache configured with correct embedding model and collection",
@@ -18,5 +18,6 @@
       "Ollama model qwen3-embedding:0.6b is pulled before LiteLLM starts"
     ]
   },
-  "status": "pending"
+  "status": "pending",
+  "branch": "main"
 }

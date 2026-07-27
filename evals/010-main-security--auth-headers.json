@@ -1,5 +1,5 @@
 {
-  "id": "008",
+  "id": "010",
   "name": "security--auth-headers",
   "category": "security",
   "description": "Auth headers properly passed through nginx-ingest to Headroom",
@@ -16,5 +16,6 @@
       "Response from Headroom includes cache headers"
     ]
   },
-  "status": "pending"
+  "status": "pending",
+  "branch": "main"
 }

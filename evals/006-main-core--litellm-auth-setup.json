@@ -1,5 +1,5 @@
 {
-  "id": "004",
+  "id": "006",
   "name": "core--litellm-auth-setup",
   "category": "core",
   "description": "LiteLLM master key generated and configured for auth",
@@ -17,5 +17,6 @@
       "Prometheus authorization uses master key credentials"
     ]
   },
-  "status": "pending"
+  "status": "pending",
+  "branch": "main"
 }

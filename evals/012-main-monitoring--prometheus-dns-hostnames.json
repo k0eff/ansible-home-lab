@@ -1,5 +1,5 @@
 {
-  "id": "010",
+  "id": "012",
   "name": "monitoring--prometheus-dns-targets-with-health",
   "category": "monitoring",
   "description": "Prometheus configured with DNS scrape targets and health check validation",
@@ -24,5 +24,6 @@
       "All scrape targets report state=up in Prometheus API"
     ]
   },
-  "status": "pending"
+  "status": "pending",
+  "branch": "main"
 }

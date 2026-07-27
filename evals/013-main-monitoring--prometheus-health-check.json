@@ -1,5 +1,5 @@
 {
-  "id": "011",
+  "id": "013",
   "name": "monitoring--prometheus-health-check",
   "category": "monitoring",
   "description": "Prometheus health check validates all scrape targets are healthy and metrics are being collected",
@@ -19,5 +19,6 @@
     ]
   },
   "status": "disabled",
-  "disabled_reason": "Merged into eval 010 (prometheus-dns-targets-with-health): Health check is part of the unified DNS + health configuration."
+  "disabled_reason": "Merged into eval 010 (prometheus-dns-targets-with-health): Health check is part of the unified DNS + health configuration.",
+  "branch": "main"
 }

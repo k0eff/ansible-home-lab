@@ -1,5 +1,5 @@
 {
-  "id": "007",
+  "id": "009",
   "name": "security--api-key-validation",
   "category": "security",
   "description": "API keys validated before reaching LiteLLM backend",
@@ -16,5 +16,6 @@
       "Authorization header format: Bearer <key> is preserved"
     ]
   },
-  "status": "pending"
+  "status": "pending",
+  "branch": "main"
 }

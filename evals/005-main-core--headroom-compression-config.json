@@ -1,5 +1,5 @@
 {
-  "id": "003",
+  "id": "005",
   "name": "core--headroom-compression-config",
   "category": "core",
   "description": "Headroom compression settings configured for token savings",
@@ -16,5 +16,6 @@
       "HEADROOM_TELEMETRY: off is set"
     ]
   },
-  "status": "pending"
+  "status": "pending",
+  "branch": "main"
 }

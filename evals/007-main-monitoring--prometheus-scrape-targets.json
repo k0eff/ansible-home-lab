@@ -1,5 +1,5 @@
 {
-  "id": "005",
+  "id": "007",
   "name": "monitoring--prometheus-scrape-targets",
   "category": "monitoring",
   "description": "Prometheus configured with correct scrape interval and all service targets",
@@ -17,5 +17,6 @@
       "Job qdrant: metrics_path=/metrics, targets=[\"qdrant:6333\"]"
     ]
   },
-  "status": "pending"
+  "status": "pending",
+  "branch": "main"
 }
