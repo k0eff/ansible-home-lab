@@ -1,0 +1,13 @@
+---
+# The 200 GB data disk. Named once; every task derives its UUID from it rather
+# than repeating the device path, because a device path in fstab is the bug
+# this role used to ship.
+ops_docker_disk: /dev/sdb
+
+# containerd's data root on that disk, bind-mounted over /var/lib/containerd.
+ops_containerd_data: /var/lib/docker/containerd-data
+
+# Deleting the shadowed copy is irreversible, so it is opt-in. Run with
+#   -e ops_reclaim_containerd_underlay=true
+# only after the migration has been verified.
+ops_reclaim_containerd_underlay: false

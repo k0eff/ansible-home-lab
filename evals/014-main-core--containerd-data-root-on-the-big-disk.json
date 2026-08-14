@@ -1,0 +1,57 @@
+{
+  "id": "014-main-core--containerd-data-root-on-the-big-disk",
+  "branch": "main",
+  "name": "containerd's data root is on the 200 GB disk, in code, not by hand",
+  "category": "core",
+  "description": "The ops host has TWO docker data roots, not one, and only one of them is called docker. /var/lib/docker holds containers, volumes and networks; /var/lib/containerd holds EVERY IMAGE LAYER, because Docker 29 uses the containerd snapshotter. `docker info` prints 'Docker Root Dir: /var/lib/docker' either way, which is what hid it: /var/lib/docker sat at 11 GB of 196 while /var/lib/containerd grew to 54 GB on a 79 GB root filesystem. The host reached 85% and Rocket.Chat, Portainer and the AI stack were a few deploys from going down with it. This eval covers the ANSIBLE backport: the migration was performed by hand first, and a host fixed by hand is a host the next playbook run un-fixes.",
+  "implementation": {
+    "file": "roles/ops-settings/tasks/storage-docker.yaml",
+    "changes": [
+      "containerd's data root is bind-mounted from /var/lib/docker/containerd-data. Not a config.toml change (a dpkg conffile: a containerd upgrade prompts or silently restores the packaged version and the data root moves under a running daemon), and not a symlink (`rm -rf /var/lib/containerd/` with a trailing slash follows the link and deletes the target \u2014 one keystroke from losing every image).",
+      "The existing /var/lib/docker mount was written to fstab as /dev/sdb. Device names are assigned in discovery order, so a new disk or a different controller mounts the WRONG filesystem over /var/lib/docker. Both mounts now resolve a UUID with blkid first.",
+      "systemd drop-ins give docker.service and containerd.service RequiresMountsFor=/var/lib/containerd. Without them docker can win the boot race, create a fresh empty containerd root and start with no images, while every bind-mounted volume lands on a newly created empty directory. Rocket.Chat would answer HTTP 200 with no messages, and neither `docker ps` nor an HTTP check can tell that from a healthy host.",
+      "rsync exit 24 ('some files vanished') is accepted on both syncs. containerd deletes overlayfs snapshot directories continuously, so copying a live tree races them by definition; treating 24 as failure aborts the migration for the one thing guaranteed to happen. It did exactly that on the first real run, mid-cutover, with the services already stopped.",
+      "The cutover block has an `always:` that restarts containerd and docker. A host left with its container runtime down is worse than a host that did not migrate.",
+      "Reclaiming the space hidden under the bind mount runs inside `unshare --mount --propagation private`. The obvious alternative, `mount --bind / /mnt/rootfs`, killed PID 1 and the user manager together on this host with `Assertion 'path_is_absolute(p)' failed at src/basic/chase.c:648`; systemd froze and recovery was a Proxmox hard reset. It is opt-in because the delete is irreversible.",
+      "default_user joins the docker group, so deployments and CI do not need a password-bearing sudo \u2014 which is how credentials end up in scripts."
+    ]
+  },
+  "validation": {
+    "type": "idempotency-and-host-verification",
+    "checks": [
+      {
+        "check": "ansible-playbook --syntax-check on playbook-index.yaml",
+        "result": "pass"
+      },
+      {
+        "check": "first run against the already-migrated host: every migration task SKIPPED, only the drop-ins changed",
+        "result": "pass \u2014 ok=8 changed=1 skipped=19 failed=0"
+      },
+      {
+        "check": "second run is a no-op",
+        "result": "pass \u2014 ok=7 changed=0 skipped=19 failed=0"
+      },
+      {
+        "check": "the guards read the CURRENT state (findmnt), so the role cannot re-migrate a migrated host",
+        "result": "pass \u2014 both `Move ...` blocks skipped"
+      },
+      {
+        "check": "the private-namespace reclaim exposes the ROOT disk copy, never the live one",
+        "result": "pass \u2014 inside the namespace /var/lib/containerd resolves to /dev/sda2 with 0 entries; outside it is still /dev/sdb[/containerd-data] with 36 GB, and docker kept all 17 containers"
+      },
+      {
+        "check": "host still verifies after the ansible run",
+        "result": "pass \u2014 27/27, systemd running, 17 containers"
+      },
+      {
+        "check": "root filesystem",
+        "result": "pass \u2014 63 GB / 85% before, 9.4 GB / 13% after"
+      }
+    ]
+  },
+  "status": "pass",
+  "known_gaps": [
+    "The migration path itself (the not-yet-migrated branch) has never run end to end FROM ansible. It was executed by scripts/docker-disk-migrate.sh in music-production-engine and then written back here; what is proven is that the role correctly recognises a migrated host and does nothing. Proving the migration branch needs a host that has not had it \u2014 a fresh ops VM.",
+    "ops_reclaim_containerd_underlay defaults to false, so the space reclaim is not exercised by a normal run. The MECHANISM is proven on vm700; the delete is not, because there is nothing left to delete."
+  ]
+}

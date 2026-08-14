@@ -1,12 +1,44 @@
 ---
-- name: Check if /dev/sdb is already mounted at /var/lib/docker
-  ansible.builtin.shell: mount | grep '/var/lib/docker' | grep '/dev/sdb'
-  register: docker_mount_check
-  failed_when: false
-  changed_when: false
+# Where Docker's data ACTUALLY lives on the ops host.
+#
+# There are two data roots, not one, and only one of them is called "docker":
+#
+#   /var/lib/docker      containers, volumes, networks     -> /dev/sdb (200 GB)
+#   /var/lib/containerd  EVERY IMAGE LAYER                 -> must also be /dev/sdb
+#
+# Docker 29 uses the containerd snapshotter, so image layers are stored by
+# containerd, not by dockerd. `docker info` still prints
+# "Docker Root Dir: /var/lib/docker", which is what hid this for months:
+# /var/lib/docker sat at 11 GB of 196 while /var/lib/containerd grew to 54 GB
+# on a 79 GB root filesystem. The root disk reached 85% and the ops host —
+# Rocket.Chat, Portainer, the AI stack — was three deploys from falling over.
+#
+# Measured on vm700, 2026-08-14, before and after:
+#   /  63 GB used, 85%   ->   9.4 GB used, 13%
+#
+# Both moves are guarded by a check of the CURRENT state, so this file is safe
+# to re-run against a host that is already migrated: it does nothing.
 
-- name: Configure Docker Storage (200GB Disk)
-  when: docker_mount_check.rc != 0
+- name: Find the UUID of the 200 GB data disk
+  # By UUID, never by /dev/sdb. A device name is assigned in discovery order:
+  # add a disk, change a controller, or reboot into a kernel that enumerates
+  # differently, and /dev/sdb is a different disk or does not exist. The
+  # earlier version of this file wrote `/dev/sdb` into /etc/fstab, which means
+  # a host that boots with the disks swapped mounts the WRONG filesystem over
+  # /var/lib/docker, or fails to boot.
+  ansible.builtin.command: blkid -o value -s UUID {{ ops_docker_disk }}
+  register: ops_docker_disk_uuid
+  changed_when: false
+  failed_when: ops_docker_disk_uuid.stdout | length != 36
+
+- name: Check whether /var/lib/docker is already on the data disk
+  ansible.builtin.command: findmnt -n -o SOURCE --target /var/lib/docker
+  register: docker_mount_check
+  changed_when: false
+  failed_when: false
+
+- name: Move /var/lib/docker to the 200 GB disk
+  when: ops_docker_disk not in docker_mount_check.stdout
   block:
     - name: Ensure rsync is installed
       ansible.builtin.apt:
@@ -18,39 +50,38 @@
         name: docker
         state: stopped
 
-    - name: Create ext4 filesystem on /dev/sdb
+    - name: Create ext4 filesystem on the data disk
       community.general.filesystem:
         fstype: ext4
-        dev: /dev/sdb
+        dev: "{{ ops_docker_disk }}"
 
     - name: Create temporary mount point
       ansible.builtin.file:
         path: /mnt/docker-migration
         state: directory
 
-    - name: Mount 200GB disk temporarily
-      ansible.builtin.mount:
+    - name: Mount the data disk temporarily
+      ansible.posix.mount:
         path: /mnt/docker-migration
-        src: /dev/sdb
+        src: "UUID={{ ops_docker_disk_uuid.stdout }}"
         fstype: ext4
         state: mounted
 
-    # We need to move data because 'geerlingguy.docker' runs BEFORE this role.
-    # Docker is already installed on the root disk. We move that data to the new disk
-    # so we don't lose the initial installation state/images.
-    - name: Sync existing Docker data to new disk
-      ansible.builtin.shell: rsync -ax /var/lib/docker/ /mnt/docker-migration/
-      # Only run if source has files. 'rsync' handles empty source fine.
+    # geerlingguy.docker runs BEFORE this role, so docker is already installed
+    # on the root disk. Move that state rather than discarding it.
+    - name: Sync existing Docker data to the data disk
+      ansible.builtin.shell: rsync -aHAX --numeric-ids /var/lib/docker/ /mnt/docker-migration/
+      changed_when: true
 
-    - name: Unmount temporary mount
-      ansible.builtin.mount:
+    - name: Unmount the temporary mount
+      ansible.posix.mount:
         path: /mnt/docker-migration
         state: absent
 
-    - name: Mount 200GB disk to /var/lib/docker
-      ansible.builtin.mount:
+    - name: Mount the data disk at /var/lib/docker
+      ansible.posix.mount:
         path: /var/lib/docker
-        src: /dev/sdb
+        src: "UUID={{ ops_docker_disk_uuid.stdout }}"
         fstype: ext4
         state: mounted
 
@@ -59,7 +90,177 @@
         name: docker
         state: started
 
-    - name: Remove temporary mount point
+    - name: Remove the temporary mount point
       ansible.builtin.file:
         path: /mnt/docker-migration
         state: absent
+
+- name: Rewrite an existing /dev/sdb fstab entry to use the UUID
+  # For hosts migrated before this role learned about UUIDs. Idempotent: on a
+  # host already using UUID= the regexp matches nothing.
+  ansible.posix.mount:
+    path: /var/lib/docker
+    src: "UUID={{ ops_docker_disk_uuid.stdout }}"
+    fstype: ext4
+    opts: defaults
+    state: present
+
+# ---------------------------------------------------------------------------
+# containerd — the 50 GB nobody was looking at
+# ---------------------------------------------------------------------------
+
+- name: Check whether /var/lib/containerd is already on the data disk
+  ansible.builtin.command: findmnt -n -o SOURCE --target /var/lib/containerd
+  register: containerd_mount_check
+  changed_when: false
+  failed_when: false
+
+- name: Move containerd's data root to the 200 GB disk
+  when: ops_docker_disk not in containerd_mount_check.stdout
+  block:
+    # A BIND MOUNT, not a config change and not a symlink.
+    #
+    #   config change: `root =` in /etc/containerd/config.toml is a dpkg
+    #     conffile. A containerd package upgrade prompts, or silently keeps the
+    #     packaged version, and the data root moves back under a running daemon.
+    #   symlink: `rm -rf /var/lib/containerd/` with a trailing slash follows the
+    #     link and deletes the TARGET. That is one keystroke from losing every
+    #     image on the host.
+    #   bind mount: both daemons keep their compiled-in default path, nothing
+    #     in any config file has to agree with anything else, and rollback is
+    #     stop + umount + start.
+    - name: Ensure the destination directory exists on the data disk
+      ansible.builtin.file:
+        path: "{{ ops_containerd_data }}"
+        state: directory
+        mode: "0711"
+
+    - name: Pre-sync containerd's data while the daemon runs
+      # Deliberately inconsistent: this is the warm copy that makes the real
+      # outage short. Measured on vm700: 36 GB in 259 s here, then 13 s for the
+      # delta below. Without it the whole 36 GB copies inside the outage.
+      ansible.builtin.shell: rsync -aHAX --numeric-ids --delete /var/lib/containerd/ {{ ops_containerd_data }}/
+      register: containerd_presync
+      changed_when: true
+      # 24 is "some files vanished before they could be transferred". containerd
+      # deletes overlayfs snapshot directories continuously, so a copy of a LIVE
+      # tree races them by definition. Treating 24 as failure here aborts a
+      # migration for the one thing that is guaranteed to happen.
+      failed_when: containerd_presync.rc not in [0, 24]
+
+    - name: Stop docker and containerd for the cutover
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - docker.socket
+        - docker
+        - containerd
+
+    - name: Delta-sync containerd's data
+      ansible.builtin.shell: rsync -aHAX --numeric-ids --delete /var/lib/containerd/ {{ ops_containerd_data }}/
+      register: containerd_delta
+      changed_when: true
+      failed_when: containerd_delta.rc not in [0, 24]
+
+    - name: Bind-mount the data disk copy over containerd's default path
+      ansible.posix.mount:
+        path: /var/lib/containerd
+        src: "{{ ops_containerd_data }}"
+        fstype: none
+        opts: bind,x-systemd.requires-mounts-for=/var/lib/docker
+        state: mounted
+
+    - name: Assert the bind mount actually took
+      # A bind mount that failed leaves the ORIGINAL directory visible with the
+      # original data, on the original disk. Every symptom of success, none of
+      # the effect.
+      ansible.builtin.command: findmnt -n -o SOURCE --target /var/lib/containerd
+      register: containerd_after
+      changed_when: false
+      failed_when: ops_docker_disk not in containerd_after.stdout
+
+  always:
+    # `always`, because a host left with its container runtime down is worse
+    # than a host that did not migrate. Any failure above still restarts these.
+    - name: Start containerd and docker again
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: started
+      loop:
+        - containerd
+        - docker
+        - docker.socket
+
+- name: Order the container runtime after the bind mount
+  # Without this, docker can win the race against the mount on a slow boot,
+  # create a fresh EMPTY /var/lib/containerd on the root disk, and start with
+  # no images at all — while every container that has a bind-mounted volume
+  # comes up pointing at a newly created empty directory. Rocket.Chat would
+  # answer HTTP 200 with no messages. Neither `docker ps` nor an HTTP check can
+  # tell that from a healthy host, so the ordering is the only defence.
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item }}.service.d/containerd-mount.conf"
+    mode: "0644"
+    content: |
+      # Managed by ansible-home-lab (roles/ops-settings/tasks/storage-docker.yaml)
+      [Unit]
+      RequiresMountsFor=/var/lib/containerd
+      After=var-lib-containerd.mount
+  loop:
+    - docker
+    - containerd
+  notify: Reload systemd
+
+- name: Reclaim the shadowed original after a successful migration
+  # The bind mount HIDES the old directory; it does not remove it, so the root
+  # disk gets nothing back until the contents underneath are deleted.
+  #
+  # Reaching them needs a view of the mount point WITHOUT the mount. The
+  # obvious way — `mount --bind / /mnt/rootfs` and delete through that — is the
+  # wrong way twice over. It killed PID 1 and the user manager together on
+  # vm700 (systemd 255.4-1ubuntu8.17):
+  #     Assertion 'path_is_absolute(p)' failed at src/basic/chase.c:648
+  # systemd froze and recovery was a Proxmox hard reset. And it is dangerous
+  # even when it works, because the path it exposes is one typo away from the
+  # LIVE copy on the data disk.
+  #
+  # A private mount namespace has neither problem: the umount inside it is
+  # invisible to the host, the live mount is never touched, and what becomes
+  # visible at /var/lib/containerd is unambiguously the directory on the ROOT
+  # disk — the only thing there is to delete.
+  when: ops_reclaim_containerd_underlay | bool
+  block:
+    - name: Delete the shadowed copy inside a private mount namespace
+      ansible.builtin.command: >-
+        unshare --mount --propagation private
+        sh -c 'umount /var/lib/containerd && findmnt -n --target /var/lib/containerd | grep -q " {{ ops_docker_disk }} " && exit 9; find /var/lib/containerd -mindepth 1 -delete'
+      register: containerd_reclaim
+      changed_when: containerd_reclaim.rc == 0
+      # rc 9 is the guard firing: after umount the path STILL resolves to the
+      # data disk, which would mean the live copy is what is about to be
+      # deleted. Refuse rather than free some space.
+      failed_when: containerd_reclaim.rc not in [0]
+
+    - name: Confirm the live copy is untouched
+      ansible.builtin.command: findmnt -n -o SOURCE --target /var/lib/containerd
+      register: containerd_still_mounted
+      changed_when: false
+      failed_when: ops_docker_disk not in containerd_still_mounted.stdout
+
+- name: Let the deploy user drive Docker without sudo
+  # Every deployment and every CI run on this host shells into docker. Without
+  # this each one needs a password-bearing sudo, which is how credentials end
+  # up in scripts.
+  ansible.builtin.user:
+    name: "{{ default_user }}"
+    groups: docker
+    append: true
+
+- name: Ensure the CI slot directory the test runner writes into
+  ansible.builtin.file:
+    path: /opt/mpe-ci
+    state: directory
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
+    mode: "0755"
