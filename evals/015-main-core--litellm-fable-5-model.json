@@ -1,0 +1,28 @@
+{
+  "id": "015",
+  "branch": "main",
+  "name": "core--litellm-fable-5-model",
+  "category": "core",
+  "description": "Claude Fable 5 (and its first-party-only sibling Mythos 5) are served by the LiteLLM proxy so Claude Code clients can select them through headroom",
+  "implementation": {
+    "file": "roles/ops-settings/templates/headroom/litellm-config.yaml.j2",
+    "change": "Add claude-fable-5 and claude-mythos-5 entries to model_list, routed directly to anthropic/ (BYOK: client bearer token forwarded as x-api-key, no server-side Anthropic key)"
+  },
+  "validation": {
+    "type": "config_deployed",
+    "checks": [
+      "Model IDs verified in two independent Anthropic-shipped binaries: /Applications/Claude.app app.asar model catalog and the bundled CLI in the newest ~/.vscode/extensions/anthropic.claude-code-*",
+      "Catalog entry confirms id=claude-fable-5, family=fable, provider_ids.first_party=claude-fable-5, alias fable -> claude-fable-5, best=fable",
+      "litellm-config.yaml.j2 contains model_name claude-fable-5 with litellm_params.model anthropic/claude-fable-5",
+      "litellm-config.yaml.j2 contains model_name claude-mythos-5 with litellm_params.model anthropic/claude-mythos-5",
+      "Rendered /opt/koeff-ai-stack/litellm-config.yaml on 192.168.31.152 contains both entries and no unrendered {{ }} placeholder",
+      "LiteLLM container restarted and GET http://localhost:4000/models lists claude-fable-5 and claude-mythos-5",
+      "Previously served models (claude-opus-5, claude-sonnet-5, claude-haiku-4-5-20251001) still listed after restart",
+      "Routing probe: POST /v1/chat/completions with a deliberately invalid x-api-key returns Anthropic authentication_error (not a LiteLLM 'model not found'), for both claude-fable-5 and claude-mythos-5 \u2014 proves BYOK header forwarding reaches Anthropic",
+      "GET /health/liveliness returns \"I'm alive!\" after restart",
+      "No other eval in this repo targets litellm-config.yaml.j2, so no cross-eval regression re-validation was required (005/009/011 target docker-compose.yml.j2, 010 targets nginx-ingest.conf.j2 \u2014 both untouched)"
+    ]
+  },
+  "status": "pass",
+  "validated_on": "vm700 (192.168.31.152), /opt/koeff-ai-stack, LiteLLM container koeff-ai-stack-litellm"
+}
