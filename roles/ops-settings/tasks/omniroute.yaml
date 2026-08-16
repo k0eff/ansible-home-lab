@@ -1,0 +1,139 @@
+---
+# OmniRoute — LLM routing dashboard on vm700, published as
+# https://omniroute.koeff.com through the cluster's Envoy gateway
+# (helmfile-home-lab: values/common/omniroute-gateway.yaml.gotmpl).
+#
+# This codifies what was first done by hand on 2026-08-15. That attempt built
+# the image on this host with a plain `docker compose build`, which peaked at
+# 13.4 GB RSS and OOM-killed the box out from under RocketChat, LiteLLM and
+# music-production-engine. Two capped retries failed as well. The image is
+# therefore pulled, never built here; the runtime ceilings below exist for the
+# same reason.
+
+- name: Define OmniRoute paths
+  ansible.builtin.set_fact:
+    omniroute_stack_dir: /opt/omniroute
+    omniroute_secrets_dir: /var/lib/docker-data/omniroute
+
+- name: Ensure OmniRoute directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ omniroute_stack_dir }}", mode: "0755" }
+    - { path: "{{ omniroute_secrets_dir }}", mode: "0700" }
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Normalise ownership of the OmniRoute checkout
+  # The original clone was made as {{ default_user }}; git run as root over a
+  # foreign-owned worktree refuses with "detected dubious ownership".
+  ansible.builtin.file:
+    path: "{{ omniroute_stack_dir }}"
+    state: directory
+    owner: root
+    group: root
+    recurse: true
+
+- name: Check out OmniRoute at the pinned version
+  ansible.builtin.git:
+    repo: "{{ omniroute_repo }}"
+    dest: "{{ omniroute_stack_dir }}"
+    version: "{{ omniroute_version }}"
+    force: true
+  register: omniroute_checkout
+
+- name: Generate OmniRoute secrets on first run
+  ansible.builtin.shell: |
+    set -eu
+    umask 077
+    {{ item.generate }} > "{{ omniroute_secrets_dir }}/{{ item.name }}"
+  args:
+    creates: "{{ omniroute_secrets_dir }}/{{ item.name }}"
+    executable: /bin/bash
+  loop:
+    - name: jwt_secret
+      generate: "openssl rand -base64 48 | tr -d '\n'"
+    - name: api_key_secret
+      generate: "openssl rand -hex 32 | tr -d '\n'"
+    - name: initial_password
+      generate: "openssl rand -base64 24 | tr -d '/+=\n' | cut -c1-20"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Read OmniRoute secrets
+  ansible.builtin.slurp:
+    src: "{{ omniroute_secrets_dir }}/{{ item }}"
+  register: omniroute_secret_files
+  loop:
+    - jwt_secret
+    - api_key_secret
+    - initial_password
+  no_log: true
+
+- name: Set OmniRoute secret facts
+  ansible.builtin.set_fact:
+    omniroute_secrets: >-
+      {{ dict(omniroute_secret_files.results | map(attribute='item')
+              | zip(omniroute_secret_files.results | map(attribute='content')
+                    | map('b64decode') | map('trim'))) }}
+  no_log: true
+
+- name: Render OmniRoute env file
+  ansible.builtin.template:
+    src: omniroute/env.j2
+    dest: "{{ omniroute_stack_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  register: omniroute_env
+
+- name: Render OmniRoute compose override
+  ansible.builtin.template:
+    src: omniroute/docker-compose.override.yml.j2
+    dest: "{{ omniroute_stack_dir }}/docker-compose.override.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Pull the published OmniRoute image
+  community.docker.docker_image_pull:
+    name: "{{ omniroute_image }}"
+    pull: "{{ 'always' if omniroute_force_pull | bool else 'not_present' }}"
+  register: omniroute_pull
+
+- name: Tag the pulled image as the name compose expects
+  # docker-compose.prod.yml carries a build stanza with `image: omniroute:prod`.
+  # Satisfying that name locally means compose finds the image present and
+  # never builds — which is the whole point on this host.
+  community.docker.docker_image_tag:
+    name: "{{ omniroute_image }}"
+    repository: "{{ omniroute_local_image }}"
+
+- name: Start the OmniRoute stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ omniroute_stack_dir }}"
+    files:
+      - docker-compose.prod.yml
+      - docker-compose.override.yml
+    state: present
+    build: never
+
+- name: Wait for the OmniRoute dashboard to answer
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ omniroute_dashboard_port }}/"
+    status_code: [200, 302, 307]
+  register: omniroute_health
+  until: omniroute_health.status is defined and omniroute_health.status in [200, 302, 307]
+  retries: 20
+  delay: 6
+
+- name: Report where the initial dashboard password lives
+  ansible.builtin.debug:
+    msg: >-
+      OmniRoute is up on port {{ omniroute_dashboard_port }}. The initial admin
+      password is in {{ omniroute_secrets_dir }}/initial_password on this host;
+      change it from Dashboard > Settings > Security after first login.

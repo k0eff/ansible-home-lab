@@ -128,6 +128,11 @@
   tags:
     - playwright_mcp_stack
 
+- name: Import OmniRoute setup
+  import_tasks: omniroute.yaml
+  tags:
+    - omniroute_stack
+
 - name: Verify Playwright‑MCP Docker image builds and contains Chromium
   block:
     - name: Build Playwright‑MCP Docker image on localhost

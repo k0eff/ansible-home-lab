@@ -11,3 +11,57 @@ ops_containerd_data: /var/lib/docker/containerd-data
 #   -e ops_reclaim_containerd_underlay=true
 # only after the migration has been verified.
 ops_reclaim_containerd_underlay: false
+
+# --- OmniRoute (https://omniroute.koeff.com) ---------------------------------
+omniroute_repo: https://github.com/diegosouzapw/OmniRoute.git
+# Pinned to the release tag. The checkout supplies docker-compose.prod.yml and
+# .env.example only — the image itself is pulled, never built here (see
+# omniroute_image below), so the tag and the image tag must stay in step.
+omniroute_version: v3.8.49
+omniroute_public_host: omniroute.koeff.com
+
+# Host ports published by docker-compose.prod.yml. 20130 is the one the cluster
+# gateway forwards to (values/common/omniroute-gateway.yaml.gotmpl in
+# helmfile-home-lab).
+omniroute_dashboard_port: 20130
+omniroute_api_port: 20131
+omniroute_ws_port: 20132
+# Ports inside the container; the compose file maps the ones above onto these.
+omniroute_internal_dashboard_port: 20128
+omniroute_internal_api_port: 20129
+omniroute_internal_ws_port: 20132
+
+# The published image, pulled — this host does not build it.
+#
+# Building it here was tried three times on 2026-08-15/16 and is a dead end on
+# a 16 GB box that already runs RocketChat, LiteLLM and
+# music-production-engine. Unbounded, the Next.js/Turbopack build peaked at
+# 13.4 GB RSS and the OOM-killer took the whole host down. Capped at 6 GiB it
+# died with "ResourceExhausted: cannot allocate memory" after 29 minutes.
+# Capped at 10 GiB it drove the host to 159 MB free and wedged the kernel a
+# second time. Turbopack is native Rust, so no NODE_OPTIONS heap limit bounds
+# it. Upstream publishes the same artifact on Docker Hub for amd64 and arm64;
+# pulling ~483 MB replaces a 30-minute build that this host cannot survive.
+#
+# Keep the tag in step with omniroute_version above.
+omniroute_image: docker.io/diegosouzapw/omniroute:3.8.49
+# The name docker-compose.prod.yml expects. The pulled image is tagged with it
+# so compose finds it present and never triggers its own build stanza.
+omniroute_local_image: omniroute:prod
+
+# Runtime ceilings. memswap_limit is pinned to mem_limit in the override file
+# so a leaking container is killed rather than left to swap the host to death —
+# swapping is exactly how this host went down twice.
+omniroute_app_memory_mb: 3072
+omniroute_redis_memory_mb: 256
+omniroute_runtime_heap_mb: 1024
+
+# TLS terminates at the Envoy gateway, so session cookies must carry Secure.
+# The trade-off is that logging in over plain http://<lan-ip>:20130 will not
+# hold a session — reach the dashboard through the public hostname.
+omniroute_auth_cookie_secure: true
+
+# Re-pull the image even when it is already present locally. Run with
+#   -e omniroute_force_pull=true
+# after moving omniroute_image to a tag that has been republished in place.
+omniroute_force_pull: false

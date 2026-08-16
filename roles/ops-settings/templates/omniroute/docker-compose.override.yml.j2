@@ -1,0 +1,21 @@
+## Managed by ansible — roles/ops-settings/templates/omniroute/docker-compose.override.yml.j2
+## Edits here are overwritten on the next run. Change the role instead.
+##
+## Layered on top of the upstream docker-compose.prod.yml, which ships no
+## resource ceilings. vm700 also runs RocketChat, LiteLLM and
+## music-production-engine, and it was taken down twice on 2026-08-15/16 by
+## memory pressure. memswap_limit is pinned to mem_limit so a container that
+## hits its ceiling is killed rather than left to swap the host into a
+## standstill — swapping is what wedged the kernel both times.
+##
+## Compose does not auto-load this file when -f selects a non-default compose
+## file, so the role passes both files explicitly.
+
+services:
+  omniroute-prod:
+    mem_limit: {{ omniroute_app_memory_mb }}m
+    memswap_limit: {{ omniroute_app_memory_mb }}m
+
+  redis:
+    mem_limit: {{ omniroute_redis_memory_mb }}m
+    memswap_limit: {{ omniroute_redis_memory_mb }}m

@@ -1,0 +1,30 @@
+{
+  "id": "016",
+  "branch": "main",
+  "name": "core--omniroute-stack",
+  "category": "core",
+  "description": "OmniRoute runs on vm700 from ansible instead of by hand, deployed from the image upstream publishes rather than built on the host — building it there took the box down three times",
+  "implementation": {
+    "file": "roles/ops-settings/tasks/omniroute.yaml",
+    "change": "New task file plus templates/omniroute/{env.j2,docker-compose.override.yml.j2} and omniroute_* defaults; imported from tasks/main.yaml under tag omniroute_stack. The role checks out the pinned tag for its compose file, pulls docker.io/diegosouzapw/omniroute:3.8.49 and tags it omniroute:prod so compose never triggers its build stanza, generates secrets once into /var/lib/docker-data/omniroute, and pins mem_limit == memswap_limit on both containers"
+  },
+  "validation": {
+    "type": "service_deployed",
+    "checks": [
+      "ansible-playbook -l ops --tags omniroute_stack completes with failed=0",
+      "Idempotent: an immediate second run reports changed=0",
+      "docker ps shows omniroute-prod and omniroute-redis-prod both (healthy), publishing 20130/20131/20132",
+      "Image provenance: omniroute:prod resolves to diegosouzapw/omniroute@sha256:92c768c56e2de32c51a0621ef182835018b00b288c9bb235c5c5e4514658c1a1, tag 3.8.49",
+      "docker inspect omniroute-prod reports Memory 3221225472 and MemorySwap 3221225472 (equal, so the container cannot swap); redis 268435456",
+      "curl http://192.168.31.152:20130/ returns 307",
+      "Rendered /opt/omniroute/.env carries no unrendered {{ }} placeholder, AUTH_COOKIE_SECURE=true and NEXT_PUBLIC_BASE_URL=https://omniroute.koeff.com",
+      "Secrets live in /var/lib/docker-data/omniroute (mode 0700), not in this repository",
+      "Co-tenants unaffected after the deploy: mpe 8770=200, LiteLLM 4000=200, Grafana 3000=200, RocketChat 6666=200",
+      "Host has headroom during and after: ~12 GB available, zero i/o error lines in dmesg",
+      "verify_vm700.sh covers port 20130",
+      "Building on the host was ruled out empirically, not assumed: uncapped it peaked at 13.4 GB RSS and OOM-killed the box; capped at 6 GiB it failed with 'ResourceExhausted: cannot allocate memory' after 29 minutes; capped at 10 GiB it drove the host to 159 MB free and wedged the kernel a second time"
+    ]
+  },
+  "status": "pass",
+  "validated_on": "vm700 (192.168.31.152), /opt/omniroute"
+}

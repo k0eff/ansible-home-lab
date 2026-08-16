@@ -11,9 +11,10 @@ else
     exit 1
 fi
 
-echo "Checking Portainer ports..."
+echo "Checking service ports..."
 
-for port in 9000 9443 6666; do
+# 9000/9443 Portainer, 6666 RocketChat, 20130 OmniRoute dashboard
+for port in 9000 9443 6666 20130; do
     echo -n "Port $port: "
     if nc -z -G 2 $IP $port &> /dev/null; then
         echo "OPEN"
