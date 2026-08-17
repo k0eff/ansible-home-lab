@@ -1,0 +1,52 @@
+{
+  "id": "018",
+  "branch": "main",
+  "name": "core--rocketchat-portainer-version-pinning",
+  "category": "core",
+  "description": "RocketChat and Portainer are pinned to their vendors' LTS lines with the reasoning recorded next to each pin, and the two defects that let Portainer sit on an unmaintained release for seven months are removed. Portainer moves from portainer/portainer-ce:latest (which resolved to 2.33.6 from 2026-01-28 on the live host) to a digest pin of 2.39.6 LTS with an explicit pull policy and a version read-back assert. RocketChat moves from the Docker Official Image rocket.chat:8.4.3 to docker.io/rocketchat/rocket.chat:8.5.2 — a repository change, not just a tag bump, because the official image had no 8.4.5, 8.5.2, 8.6.x or 8.7.0 at all and the patch line was unreachable from it. MongoDB moves 8.2.4 -> 8.2.12 inside the line Rocket.Chat verifies. Nothing is applied to vm700 by this change",
+  "implementation": {
+    "file": "roles/ops-settings/tasks/portainer.yaml",
+    "change": "portainer.yaml pins portainer_image by OCI index digest (sha256:3fa8750ac2b98ce56784ca292df1adc3ec38f0062fd572811ea4b2221beee310 = 2.39.6 LTS), sets pull and image_name_mismatch explicitly, asserts the pin contains @sha256:, and reads /api/status back to fail the play when the running version does not equal portainer_image_version. rocketchat.yaml gains a pre-upgrade mongodump gated on rc-mongo already running, renders the new templates/rocketchat/docker-compose.yml.j2 instead of copying the static files/rocketchat/docker-compose.yml (deleted), drops the 'Render .env file (if needed)' task that rendered a template which has never existed in this repo under ignore_errors, and adds a 300s health gate plus a version assert on /api/info. defaults/main.yaml gains portainer_* and rocketchat_* blocks carrying the lifecycle reasoning for each pin. tasks/main.yaml tags the RocketChat import rocketchat_stack so the stack can be run without the whole ops role. Full plan, refutation analysis and rollback in roles/ops-settings/docs/rocketchat-portainer-upgrade.md",
+    "supersedes": "No prior eval covers rocketchat.yaml or portainer.yaml. 017 references caddy_portainer_port and caddy_rocketchat_port only as backend addresses; those ports are unchanged by this work, so 017 is not invalidated"
+  },
+  "validation": {
+    "type": "config_change",
+    "checks": [
+      "STATIC (done): ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml --syntax-check passes",
+      "STATIC (done): templates/rocketchat/docker-compose.yml.j2 renders against defaults/main.yaml and the result parses as YAML. Rendered services are byte-equivalent to the deleted files/rocketchat/docker-compose.yml except the three image references — mongo:8.2.12, mongo:8.2.12, docker.io/rocketchat/rocket.chat:8.5.2 — with container names, replica-set command, oplogSize 128, wiredTigerCacheSizeGB 0.25, healthcheck, depends_on conditions, 6666:3000, ROOT_URL, MONGO_URL, MONGO_OPLOG_URL, TRUSTED_PROXIES and both bind mounts unchanged",
+      "STATIC (done): all three pins resolve on Docker Hub and their OCI indexes include linux/amd64, which is what vm700 needs. portainer-ce digest -> linux/amd64 arm64 armv7 ppc64le + windows; rocketchat/rocket.chat:8.5.2 -> linux/amd64 arm64; mongo:8.2.12 -> linux/amd64 arm64v8 + windows",
+      "STATIC (done): the digest pinned for Portainer is the same one Docker Hub's 'latest' and 'lts' tags resolve to as of 2026-08-13, and is 2.39.6. Only the 'sts' tag carries 2.44.0",
+      "STATIC (done): no floating tag left in either task file; portainer.yaml asserts '@sha256:' is present in portainer_image and fails the play otherwise",
+      "STATIC (done): no secret value added. The pins, ports and paths are all public facts",
+      "STATIC (done): the 'Render .env file (if needed)' task is gone and templates/rocketchat/.env.j2 does not exist and never did — git log shows no commit ever added it. The compose file has no env_file directive and no ${...} interpolation, so nothing read it",
+      "STATIC (done): rocketchat_stack tag added; git grep confirms no other file referenced files/rocketchat/docker-compose.yml, so its deletion leaves no stale reference",
+      "EVIDENCE (read-only, 2026-08-17): the defect this fixes is measured, not hypothesised. vm700 /api/status reported Version 2.33.6 from a container created 2026-01-28T22:50:52Z, while Docker Hub's portainer-ce:latest had moved to 2.39.6 on 2026-08-13. community.docker.docker_container defaults to pull: not_present, which is why the tag never re-resolved",
+      "EVIDENCE (read-only, 2026-08-17): hub.docker.com returns 404 for library/rocket.chat tags 8.4.5, 8.5.2, 8.6.0, 8.6.1, 8.7.0 and 8.0.8, and 200 for 8.4.3, 8.4.4 and 8.5.1. docker.io/rocketchat/rocket.chat has all of them. The repository change is required, not cosmetic",
+      "EVIDENCE (read-only, 2026-08-17): the LTS choice is taken from the vendors, not assumed. Rocket.Chat's signed supported-versions JWT served by the live workspace marks 8.5.x lts=true expiring 2027-06-30, against 8.7.0 lts=false expiring 2027-02-28 and the current 8.4.x expiring 2026-10-31. Portainer's lifecycle policy lists 2.39 LTS maintained to Nov 2026 and 2.44 STS to Aug 2026",
+      "EVIDENCE (read-only, 2026-08-17): MongoDB stays on 8.2. Rocket.Chat's support-prerequisites table says 8.x supports '8.0 and above (verified with 8.2)', and the live rc-mongo reports featureCompatibilityVersion 8.2, which MongoDB 8.0 will not open. The 'MongoDB: 8.0' line in the release notes' Engine versions block is a floor, not a target",
+      "EVIDENCE (read-only, 2026-08-17): capacity is not a constraint. /var/lib/docker 93 GB free of 196 GB, / 64 GB free of 79 GB, 10.4 GB RAM available of 16 GB, rocketchat database 60 MB data / 22 MB storage. No image is built by this change",
+      "PENDING deploy: ansible-playbook -l ops --tags portainer_stack completes and /api/status reports 2.39.6",
+      "PENDING deploy: ansible-playbook -l ops --tags rocketchat_stack completes, a dump lands in /var/lib/docker-data/rocketchat-backups/, and /api/info reports 8.5",
+      "PENDING deploy: idempotence — a second consecutive run of each tag reports changed=0",
+      "PENDING deploy: chat.koeff.com loads and sends a message, and portainer.local.koeff.com logs in, both through Caddy rather than the loopback",
+      "PENDING deploy: rs.status().ok returns 1 after the MongoDB patch bump, and the uploads bind mount still serves existing attachments"
+    ]
+  },
+  "refutation": [
+    "REFUTED 'bump the compose file to rocket.chat:8.7.0': that tag 404s. The compose referenced the Docker Official Image, whose newest tag was 8.5.1 on 2026-08-17. Every release from the 2026-07-10 security-hotfix wave onward was unreachable from it",
+    "REFUTED 'newest release is the best target', twice. Rocket.Chat 8.7.0 expires four months BEFORE 8.5.2 LTS. Portainer 2.44.0 STS reached end of maintenance in Aug 2026 and predates the Go 1.25.12, go-git 5.19.2, oras-go 2.6.2, otel 1.44.0 and golang.org/x/net 0.56.0 CVE remediations that 2.39.6 carries",
+    "REFUTED 'portainer-ce:latest keeps Portainer current': it produced an install that was simultaneously unpinned and frozen — no version in the repo to review, and no pull to move it",
+    "REFUTED 'the release notes require MongoDB 8.0, so downgrade': it is a floor, and acting on the misreading would have forced a dump-and-restore, because FCV 8.2 data files cannot be opened by 8.0",
+    "REFUTED 'the role can already do this safely': no backup, a permanently failing .env task masked by ignore_errors, and no tag to run the stack in isolation",
+    "REFUTED 'rollback means re-pinning the old version': Portainer bumps its bolt schema and cannot read a newer database on an older binary; Rocket.Chat migrations rewrite documents in place. Both roll back only from a backup taken beforehand, which is why the dump is now a play task",
+    "SURVIVED 'Caddy keeps routing to Portainer': HTTP on 9000 is not in Portainer's deprecated-and-removed table and force-HTTPS-only is opt-in, so caddy_portainer_port needs no change",
+    "SURVIVED '8.4.3 -> 8.5.2 may need intermediate hops': the no-skipping rule is about major versions; the docs give 8.0.x -> 8.6.x as an explicitly allowed direct move",
+    "COST STATED, not hidden: 8.7.0 closed a SAML SSO authentication bypass and a forged-ephemeral-message impersonation issue, and the matching 8.5.3 has not shipped. Until it does, 8.5.2 is behind 8.7.0 on those two items. This workspace does not use SAML"
+  ],
+  "known_deltas": [
+    "The RocketChat services still carry no mem_limit, while caddy and omniroute both do because this host has been swapped to death twice. Sizing that ceiling requires observed RSS on 8.5.2 and is deliberately not guessed during a version upgrade",
+    "Portainer 2.45 LTS (Aug 2026, maintained to May 2027) is skipped until it has a patch release or two",
+    "Rocket.Chat /api/info reports major.minor only, so the version assert checks the 8.5 line rather than the 8.5.2 patch. The patch is fixed by the image pin, which the compose render covers"
+  ],
+  "status": "pending"
+}

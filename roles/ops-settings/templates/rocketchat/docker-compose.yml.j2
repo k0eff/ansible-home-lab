@@ -1,0 +1,63 @@
+{{ ansible_managed | comment }}
+# RocketChat on vm700, published at {{ rocketchat_public_url }} through the Caddy
+# edge stack (caddy_rocketchat_port: {{ rocketchat_host_port }}).
+#
+# Was files/rocketchat/docker-compose.yml — a static copy with the image tags
+# written inline. Templated so the version pins live in
+# roles/ops-settings/defaults/main.yaml next to Portainer's and Caddy's, where the
+# reason for each one is written down and a bump shows up as a one-line diff.
+#
+# History carried over from the file this replaces: the manual dump taken during
+# the 8.0.1 upgrade is at
+#   /var/lib/docker-data/rocketchat-mongo/rocketchat-backup-8.0.1.archive
+# Dumps are no longer hand-made — see the backup task in tasks/rocketchat.yaml.
+services:
+  mongo:
+    image: {{ rocketchat_mongo_image }}
+    container_name: rc-mongo
+    restart: unless-stopped
+    command: ["mongod","--replSet","rs0","--oplogSize","128","--wiredTigerCacheSizeGB","{{ rocketchat_mongo_cache_gb }}"]
+    volumes:
+      - {{ rocketchat_mongo_data }}:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' localhost:27017 | grep 1 >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  mongo-init-replica:
+    image: {{ rocketchat_mongo_image }}
+    container_name: rc-mongo-init
+    restart: "no"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    command:
+      - bash
+      - -lc
+      - |
+        mongosh --host mongo:27017 --eval '
+          try { rs.status(); print("Replica set already initialized"); }
+          catch (e) {
+            rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "mongo:27017" }] });
+            print("Replica set initiated");
+          }
+        '
+
+  rocketchat:
+    image: {{ rocketchat_image }}
+    container_name: rocketchat
+    restart: unless-stopped
+    depends_on:
+      mongo-init-replica:
+        condition: service_completed_successfully
+    ports:
+      - "{{ rocketchat_host_port }}:3000"
+    environment:
+      ROOT_URL: "{{ rocketchat_public_url }}"
+      PORT: "3000"
+      MONGO_URL: "mongodb://mongo:27017/rocketchat?replicaSet=rs0"
+      MONGO_OPLOG_URL: "mongodb://mongo:27017/local?replicaSet=rs0"
+      TRUSTED_PROXIES: "*"
+    volumes:
+      - {{ rocketchat_uploads_data }}:/app/uploads

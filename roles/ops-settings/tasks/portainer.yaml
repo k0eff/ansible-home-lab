@@ -1,12 +1,71 @@
 ---
+# Portainer CE on vm700, published at https://portainer.local.koeff.com through
+# the Caddy edge stack (caddy_portainer_port: 9000).
+#
+# This file used to say `image: portainer/portainer-ce:latest`, which failed in
+# both directions at once:
+#
+#   * `latest` is not a version. Every run was free to move Portainer to a
+#     different release with no diff and no record of what had been installed.
+#   * community.docker.docker_container defaults to `pull: not_present`, so once
+#     the tag was resolved locally it was never re-resolved. The container on
+#     vm700 was created 2026-01-28 and was still serving 2.33.6 on 2026-08-17 —
+#     an unmaintained release (2.33 LTS went end-of-maintenance in May 2026),
+#     while `latest` upstream had moved to 2.39.6.
+#
+# So the tag promised a rolling upgrade and delivered a frozen, EOL install.
+# Both halves are fixed here: the image is pinned by digest in defaults, and
+# the pull policy is explicit. Upgrading is now an edit to
+# `portainer_image` + `portainer_image_version`, reviewable in a diff.
+#
+# Portainer bumps its bolt database schema on upgrade and cannot read a newer
+# database on an older binary, so a rollback means restoring a backup — see
+# roles/ops-settings/docs/rocketchat-portainer-upgrade.md §Rollback before
+# moving the pin.
+
+- name: Assert Portainer image is pinned by digest
+  ansible.builtin.assert:
+    that:
+      - "'@sha256:' in portainer_image"
+    fail_msg: >-
+      portainer_image must be pinned by digest, not by a floating tag. A tag lets
+      an unrelated `make ops` change what runs on the edge; see the header of
+      roles/ops-settings/tasks/portainer.yaml.
+
 - name: Portainer container
   community.docker.docker_container:
     name: portainer
-    image: portainer/portainer-ce:latest
+    image: "{{ portainer_image }}"
+    # Digest-pinned, so `always` re-resolves nothing and costs nothing while the
+    # pin is unchanged; when the pin moves, it is what fetches the new image.
+    pull: "{{ 'always' if portainer_force_pull | bool else 'not_present' }}"
+    # community.docker >= 4.0 defaults this to `recreate`; stated explicitly so
+    # a collection downgrade cannot silently leave the old container running.
+    image_name_mismatch: recreate
     restart_policy: always
     ports:
-      - "9000:9000"
-      - "9443:9443"
+      - "{{ portainer_http_port }}:9000"
+      - "{{ portainer_https_port }}:9443"
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "portainer_data:/data"
+
+- name: Read back the running Portainer version
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ portainer_http_port }}/api/status"
+    return_content: true
+  register: portainer_status
+  retries: 12
+  delay: 5
+  until: portainer_status.status == 200
+  changed_when: false
+
+- name: Assert Portainer is serving the pinned version
+  ansible.builtin.assert:
+    that:
+      - portainer_status.json.Version == portainer_image_version
+    fail_msg: >-
+      Portainer reports {{ portainer_status.json.Version }} but the pin says
+      {{ portainer_image_version }}. portainer_image and portainer_image_version
+      have drifted apart, or the container was not recreated.
+    success_msg: "Portainer {{ portainer_status.json.Version }} (pinned {{ portainer_image_version }})"

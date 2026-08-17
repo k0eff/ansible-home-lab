@@ -177,4 +177,6 @@
 
 - name: Import RocketChat setup
   import_tasks: rocketchat.yaml
+  tags:
+    - rocketchat_stack
 

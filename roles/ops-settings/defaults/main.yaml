@@ -274,3 +274,110 @@ caddy_envoy_log_level: warn
 # Must outlast DNS-01 issuance of 18 certificates — retries*delay = 300s.
 caddy_health_retries: 30
 caddy_health_delay: 10
+
+# --- Portainer CE (https://portainer.local.koeff.com) ----------------------------
+#
+# Pinned by digest, like caddy_image and caddy_envoy_image above, and for the same
+# reason: a floating tag lets an unrelated `make ops` change what runs. Portainer
+# was worse than the usual floating-tag story — `portainer/portainer-ce:latest`
+# combined with docker_container's default `pull: not_present` produced an install
+# that was simultaneously unpinned *and* frozen on 2.33.6 from January 2026.
+#
+# --- Which stream: LTS, not "newest" --------------------------------------------
+# Portainer ships two streams and the newest tag is not the best one:
+#
+#   2.39 LTS  Feb 2026 -> maintained to Nov 2026   <- this pin
+#   2.44 STS  Jul 2026 -> maintained to Aug 2026   (already past EOM today)
+#
+# Upstream's own `latest` and `lts` tags both point at 2.39.6; only the `sts` tag
+# carries 2.44.0. 2.39.6 (2026-08-12) is also the more secure of the two: it ships
+# Go 1.25.12 and go-git 5.19.2 CVE remediations that 2.44.0 (2026-07-30) predates.
+# 2.45 LTS is due Aug 2026 — move to it after it has a patch release or two.
+#
+# Updating is deliberate and manual: pick a release, resolve its multi-arch index
+# digest, change BOTH lines below.
+#   docker buildx imagetools inspect portainer/portainer-ce:<ver> | head -2
+portainer_image: docker.io/portainer/portainer-ce@sha256:3fa8750ac2b98ce56784ca292df1adc3ec38f0062fd572811ea4b2221beee310
+# Asserted against /api/status after the container starts; must move in step with
+# portainer_image, which is the point — a mismatch fails the play.
+portainer_image_version: "2.39.6"
+
+# Re-pull even when the digest is already present locally (mirrors caddy_force_pull).
+# Not needed for a normal pin move: an unknown digest is fetched regardless.
+portainer_force_pull: false
+
+# Host ports. 9000 is plain HTTP and is what the Caddy edge proxies to
+# (caddy_portainer_port); 9443 is Portainer's own TLS listener, LAN-only.
+portainer_http_port: 9000
+portainer_https_port: 9443
+
+# --- RocketChat (https://chat.koeff.com) -----------------------------------------
+#
+# --- Which stream: LTS, not "newest" --------------------------------------------
+# Rocket.Chat marks one minor line per cycle as LTS, and it is NOT the newest one.
+# From the vendor's own signed supported-versions manifest, read live off this
+# workspace at http://127.0.0.1:6666/api/info on 2026-08-17:
+#
+#   8.4.x  expires 2026-10-31  lts=false   <- what was pinned here, 75 days left
+#   8.5.x  expires 2027-06-30  lts=TRUE    <- this pin
+#   8.6.x  expires 2027-01-31  lts=false
+#   8.7.0  expires 2027-02-28  lts=false   (newest stable, 4 months SHORTER than 8.5)
+#
+# Expiry is not cosmetic: past it, Rocket.Chat's cloud gates desktop and mobile app
+# access to the workspace. 8.5.2 buys ~10 months, 8.7.0 buys ~6.
+#
+# Take 8.7.0 instead only for something in it you actually need (phishing-resistant
+# MFA, the modern OAuth flow with PKCE, FIPS images) and accept re-upgrading by
+# February 2027:
+#   -e rocketchat_image=docker.io/rocketchat/rocket.chat:8.7.0 -e rocketchat_version=8.7.0
+#
+# --- Which repository ------------------------------------------------------------
+# docker.io/rocketchat/rocket.chat, the vendor repository — NOT the `rocket.chat`
+# Docker Official Image this file used to reference. The official image lags: on
+# 2026-08-17 its newest tag was 8.5.1 and it had no 8.4.5, 8.5.2, 8.6.x or 8.7.0 at
+# all. Pinning a patch release there is not possible, so the security patch line is
+# only reachable from the vendor repo.
+rocketchat_image: docker.io/rocketchat/rocket.chat:8.5.2
+# Asserted against /api/info after startup.  Rocket.Chat reports only major.minor
+# there, so this is the minor line, not the patch.
+rocketchat_version: "8.5"
+
+# MongoDB for RocketChat. Stays on the 8.2 line: Rocket.Chat 8.x supports
+# "8.0 and above (verified with 8.2)", and the live data files are already at
+# featureCompatibilityVersion 8.2, which MongoDB 8.0 refuses to open — the 8.0 in
+# the release notes' "Engine versions" block is a floor, not a target. 8.2.4 ->
+# 8.2.12 is a patch move inside that line and needs no FCV change.
+# Do NOT jump to 8.3: it is outside what Rocket.Chat verifies, and FCV 8.3 is a
+# one-way door for exactly the reason above.
+rocketchat_mongo_image: mongo:8.2.12
+rocketchat_mongo_version: "8.2.12"
+
+# WiredTiger cache. Unchanged from what has been running; named here so it stops
+# being a magic number inside the compose file.
+rocketchat_mongo_cache_gb: "0.25"
+
+# Ports and URLs.
+rocketchat_public_url: https://chat.koeff.com
+# Host port. The Caddy edge proxies to it (caddy_rocketchat_port).
+rocketchat_host_port: 6666
+
+# Paths on the 200 GB data disk.
+rocketchat_stack_dir: /opt/rocketchat
+rocketchat_mongo_data: /var/lib/docker-data/rocketchat-mongo
+rocketchat_uploads_data: /var/lib/docker-data/rocketchat-uploads
+
+# --- Pre-upgrade database dump ---------------------------------------------------
+# The 8.0.1 upgrade left a hand-made archive next to the data directory and no task
+# to reproduce it. This makes it part of the play instead. The dump is the ONLY
+# rollback for a Rocket.Chat upgrade: migrations rewrite documents in place and a
+# downgraded server will not read the migrated schema.
+# The rocketchat database was 60 MB of data / 22 MB on disk on 2026-08-17, against
+# 93 GB free on /var/lib/docker — the dump costs seconds.
+rocketchat_backup_enabled: true
+rocketchat_backup_dir: /var/lib/docker-data/rocketchat-backups
+
+# --- Health gate after compose up ------------------------------------------------
+# Rocket.Chat runs migrations on first boot of a new version before it serves;
+# retries*delay = 300s.
+rocketchat_health_retries: 30
+rocketchat_health_delay: 10
