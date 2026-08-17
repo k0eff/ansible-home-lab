@@ -193,10 +193,14 @@
   <div class="body">
     <form id="form" autocomplete="off">
       <label class="label" for="in">QuMagie link — or the whole share text</label>
+      <!-- Placeholder shows the three-host shape QuMagie hands out, using
+           documentation names and reserved ranges only (RFC 2606 / RFC 5737 /
+           RFC 1918). Never a real host or a real share code — this page is
+           public, and a real code here is a working link to someone's photos. -->
       <textarea id="in" spellcheck="false" autocapitalize="off" autofocus
-placeholder="http://koeff.myqnapcloud.com:8080/qumagie/sl/iiuB68
-http://151.251.104.115:8080/qumagie/sl/iiuB68
-http://192.168.31.108:8080/qumagie/sl/iiuB68"></textarea>
+placeholder="http://nas.example.com:8080/qumagie/sl/abc123
+http://203.0.113.10:8080/qumagie/sl/abc123
+http://192.168.0.10:8080/qumagie/sl/abc123"></textarea>
       <p class="note" id="note" role="status" aria-live="polite"></p>
       <button class="solid" id="go" type="submit" style="margin-top:10px">Convert</button>
     </form>
