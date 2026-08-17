@@ -50,6 +50,14 @@ static_resources:
                 skip_xff_append: true
                 route_config:
                   name: sidecar_routes
+                  # Envoy caps direct_response bodies at 4096 bytes unless this is
+                  # raised, and rejects the whole config at load time when one is
+                  # over. The shareurl page is 24 KB, so without this the sidecar
+                  # would not start at all — the --mode validate task ahead of
+                  # compose is what turns that into a failed play instead of an
+                  # outage. Sized well above the three inlined pages so editing
+                  # one does not silently reintroduce the same failure.
+                  max_direct_response_body_size_bytes: 262144
                   virtual_hosts:
 
                     # ── share.koeff.com — QNAP Qumagie behind path rewrites ──
