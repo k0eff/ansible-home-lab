@@ -23,8 +23,12 @@
       "BEHAVIOUR (done): the QR code decodes back to the link it encodes, checked with BarcodeDetector rather than by eye, at version 3, 4 and 6. Version 6 is the case that exercises two-block Reed-Solomon interleaving. Over the ECC-L byte ceiling the encoder returns null and the QR tile hides while the link stays",
       "BEHAVIOUR (done): the QR is drawn dark-on-light in both colour schemes. An inverted code is legal in the spec and unreliable in phone cameras, so the --qr-* tokens deliberately do not follow the dark theme",
       "BEHAVIOUR (done): no console error on load or on any of the above paths, at 375px and at desktop width, in light and dark",
-      "PENDING (deploy): ansible-playbook -l ops --tags caddy_stack -e caddy_enabled=true against vm700. Not run from this session — the play reads CERT_MANAGER_CLOUDFLARE_TOKEN and the ACME email from the environment, and applying it restarts the sidecar that also serves share.koeff.com",
-      "PENDING (post-deploy): https://shareurl.koeff.com/ returns 200 with the new sha and server: envoy, and scripts/migrations/verify_caddy.sh still reports shareurl 200 on both :80 and :443"
+      "PASS (deploy 2026-08-17): ansible-playbook -l ops --tags caddy_stack -e caddy_enabled=true finished ok=25 changed=2 failed=0. The two changes are the rendered envoy.yaml and the sidecar restart it triggers; Caddy itself needed no reload, so its config task skipped",
+      "PASS (deploy): the play's own gates passed — Caddy answered on plain HTTP and served TLS for shareurl.koeff.com, and the share sidecar path matrix came back unchanged (/qumagie/ 200, /share/ 200, /sl/ 200, /v3_menu/ 403, / 404)",
+      "PASS (live): https://shareurl.koeff.com/ returns HTTP/2 200, 24329 bytes, ssl_verify_result=0, server: envoy, content-type text/html; charset=utf-8, x-frame-options SAMEORIGIN. The body is byte-identical to the committed file (cmp), sha256 6dde0246517511f0...",
+      "PASS (live): http://shareurl.koeff.com/ returns 200 and does not redirect, which is the :80 parity behaviour eval 017 recorded and verify_caddy.sh asserts. /index.html 200, /nope 404",
+      "PASS (live): share.koeff.com was not disturbed by the shared sidecar restart — / returns 404 and /qumagie/ returns 200, matching the documented matrix",
+      "PASS (live, in-browser on https://shareurl.koeff.com): the user's own four links were run against production. The four-line blob yields one result, https://share.koeff.com/sl/iiuB68, with no chips; the LAN-IP URL alone yields the same; the SmartShare link alone is refused with its own message and renders no result. The QR decoded back to the link with BarcodeDetector. navigator.clipboard is available on the origin, so the execCommand fallback is not the live path. No console error"
     ]
   },
   "refutation": [
@@ -41,7 +45,11 @@
     "helmfile-home-lab still carries the old markup for the cluster00 nginx-url-converter release. The two copies now differ by design; the cluster copy serves nothing since the Caddy switchover and is scheduled for decommission",
     "max_direct_response_body_size_bytes is set on route_config, so it lifts the cap for all three inlined pages, not only shareurl. That is the field's scope — it does not exist per route — and 262144 is a bound on what this config may inline, not a target"
   ],
-  "status": "pending",
+  "status": "pass",
+  "deploy_notes": [
+    "The env-loading step is not optional and not cosmetic: ansible ran once without it and stopped at the token assert with ok=5 changed=0 failed=1, having touched nothing. The assert is placed before any render or container task, so a forgotten '. ./protected/main.sh cluster00' costs a failed play and no drift",
+    "scripts/migrations/verify_caddy.sh was not run. It diffs Caddy against the cluster00 Gateway, and cluster00 is mid-decommission, so its cross-check no longer has a meaningful other side. The live assertions above cover the same ground for this change"
+  ],
   "defects_found_and_fixed_during_validation": [
     "Envoy rejects a direct_response body over 4096 bytes at config load: 'response body size is 24329 bytes; maximum is 4096'. Found by the offline --mode validate run before anything was deployed, which is the failure mode the role's own validate task was written for. Fixed with max_direct_response_body_size_bytes: 262144 on route_config in envoy.yaml.j2"
   ]
