@@ -13,41 +13,51 @@
 
 # chat-v2.koeff.com - RocketChat (v2)
 {{ caddy_host_chat_v2 }} {
+	import access_log
 	import chat_v2_proxy
 }
 http://{{ caddy_host_chat_v2 }} {
+	import access_log
 	import chat_v2_proxy
 }
 
 # n8n-v2.koeff.com - n8n automation platform (v2)
 {{ caddy_host_n8n_v2 }} {
+	import access_log
 	import n8n_v2_proxy
 }
 http://{{ caddy_host_n8n_v2 }} {
+	import access_log
 	import n8n_v2_proxy
 }
 
 # overseerr-v2.koeff.com - Request/availability platform (v2)
 {{ caddy_host_overseerr_v2 }} {
+	import access_log
 	import overseerr_v2_proxy
 }
 http://{{ caddy_host_overseerr_v2 }} {
+	import access_log
 	import overseerr_v2_proxy
 }
 
 # share-v2.koeff.com - QNAP Qumagie file share via nginx sidecar (v2)
 {{ caddy_host_share_v2 }} {
+	import access_log
 	import share_v2_proxy
 }
 http://{{ caddy_host_share_v2 }} {
+	import access_log
 	import share_v2_proxy
 }
 
 # shareurl-v2.koeff.com - URL converter static site (v2)
 {{ caddy_host_shareurl_v2 }} {
+	import access_log
 	import shareurl_v2_proxy
 }
 http://{{ caddy_host_shareurl_v2 }} {
+	import access_log
 	import shareurl_v2_proxy
 }
 
@@ -59,6 +69,7 @@ http://{{ caddy_host_shareurl_v2 }} {
 # Set caddy_host_koeff_public_v2 to "" to drop this hostname.
 {% if caddy_host_koeff_public_v2 %}
 http://{{ caddy_host_koeff_public_v2 }} {
+	import access_log
 	import koeff_public_v2_proxy
 }
 {% endif %}

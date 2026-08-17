@@ -2,6 +2,22 @@
 # Each snippet is imported by both http:// and https:// site blocks to guarantee
 # identical proxying. Never inline a reverse_proxy in a site block.
 
+# Access log, imported by every site block below.
+#
+# Caddy's global `log` option configures its own runtime logger, NOT access
+# logs — a distinction that cost us the request log entirely after the cutover:
+# the stack served every hostname while `docker logs` showed nothing but
+# startup lines. Access logging in Caddy is per-site, so it has to be imported
+# into each block. Losing it is not cosmetic: the analysis that established
+# which hostnames still receive plain-HTTP traffic, and how much, was done
+# against the cluster's Envoy access log.
+(access_log) {
+	log {
+		output stdout
+		format json
+	}
+}
+
 # --- Public backends (prod) ---
 
 # chat.koeff.com - RocketChat with WebSocket support

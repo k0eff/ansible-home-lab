@@ -7,30 +7,36 @@
 
 # grafana.local.koeff.com - Grafana metrics dashboard with live streaming panels
 {{ caddy_host_grafana }} {
+	import access_log
 	import grafana_local_proxy
 }
 
 # prometheus.local.koeff.com - Prometheus metrics backend
 {{ caddy_host_prometheus }} {
+	import access_log
 	import prometheus_local_proxy
 }
 
 # litellm.local.koeff.com - LiteLLM proxy for LLM API aggregation (SSE streaming)
 {{ caddy_host_litellm }} {
+	import access_log
 	import litellm_local_proxy
 }
 
 # qdrant.local.koeff.com - Qdrant vector database
 {{ caddy_host_qdrant }} {
+	import access_log
 	import qdrant_local_proxy
 }
 
 # headroom.local.koeff.com - Headroom application (long-running requests, 600s timeout)
 {{ caddy_host_headroom }} {
+	import access_log
 	import headroom_local_proxy
 }
 
 # portainer.local.koeff.com - Portainer container management UI
 {{ caddy_host_portainer }} {
+	import access_log
 	import portainer_local_proxy
 }

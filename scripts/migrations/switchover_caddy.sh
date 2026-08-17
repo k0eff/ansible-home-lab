@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 #
-# switchover.sh — move live traffic from the cluster00 ingress to the Caddy
-# stack on vm700, and move it back.
+# switchover_caddy.sh — move live traffic from the cluster00 ingress to the
+# Caddy stack on vm700, and move it back.
 #
-#   ./switchover.sh plan       # what would change; touches nothing (default)
-#   ./switchover.sh apply      # perform the DNS half of the switchover
-#   ./switchover.sh rollback   # put DNS back on the cluster
-#   ./switchover.sh status     # where each hostname currently points
+#   ./switchover_caddy.sh plan           what would change; touches nothing (default)
+#   ./switchover_caddy.sh status         where each hostname points right now
+#   ./switchover_caddy.sh apply          both halves, interactive
+#   ./switchover_caddy.sh apply-dns      the six *.local records only
+#   ./switchover_caddy.sh verify-public  did the router move yet
+#   ./switchover_caddy.sh rollback       put DNS back on the cluster
 #
 # Requires CERT_MANAGER_CLOUDFLARE_TOKEN in the environment — the same token
 # cert-manager and Caddy already use:
@@ -64,9 +66,9 @@ die(){ printf '\n%s %s\n' "$(r 'ABORT:')" "$1"; exit 1; }
 
 MODE="${1:-plan}"
 case "$MODE" in
-  plan|apply|rollback|status) ;;
+  plan|apply|apply-dns|verify-public|rollback|status) ;;
   -h|--help) sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-  *) die "unknown mode '$MODE' (use plan, apply, rollback or status)" ;;
+  *) die "unknown mode '$MODE' (plan, status, apply, apply-dns, verify-public, rollback)" ;;
 esac
 
 [[ -n "${CERT_MANAGER_CLOUDFLARE_TOKEN:-}" ]] || die \
@@ -145,65 +147,54 @@ case "$MODE" in
 
   status) show_status ;;
 
-  plan)
-    show_status
-    hdr 'What "apply" would do'
-    printf '  %s Six A records %s -> %s:\n' "$(b '1.')" "$CLUSTER_INTERNAL" "$CADDY_IP"
-    for h in "${LOCAL_HOSTS[@]}"; do printf '       %s\n' "$h"; done
-    printf '\n  %s Router port-forward :80/:443 %s -> %s\n' "$(b '2.')" "$CLUSTER_PUBLIC" "$CADDY_IP"
-    printf '       Manual. This script cannot reach the router and will stop and ask.\n'
-    printf '\n  Not touched: the seven public A records (they point at the WAN address),\n'
-    printf '  shareurl.local.koeff.com (orphan — no route serves it, 000 from every target),\n'
-    printf '  and the cluster itself, which keeps running as the rollback path.\n'
-    printf '\n  %s\n' "$(y 'Nothing has been changed. Run "apply" when you want it to happen.')"
-    ;;
-
-  apply)
+  # The two halves run separately because only one of them is scriptable. The
+  # router change needs a person, and this script will not accept a typed
+  # confirmation on their behalf.
+  apply-dns)
     preflight
-    hdr 'Phase 1 — internal hostnames'
-    printf '  Lower stakes and reversible: these are only reachable from the LAN.\n'
-    confirm "Repoint six *.local records from the cluster to Caddy?" "yes"
+    hdr 'Internal hostnames — the scriptable half'
     fail=0
     for h in "${LOCAL_HOSTS[@]}"; do set_record "$h" "$CADDY_IP" || fail=1; done
     ((fail)) && die "at least one record did not update — fix it or run rollback"
     printf '\n  %s Propagation takes up to ~5 minutes (TTL auto = 300s).\n' "$(y '→')"
-    printf '  Check with:  dig +short @1.1.1.1 grafana.local.koeff.com\n'
+    printf '  Then:  %s verify-public   after the router forward is moved.\n' "$0"
+    ;;
 
-    hdr 'Phase 2 — public traffic (manual)'
-    cat <<EOF
-  On the router, the rule that forwards :80 and :443 must change its target:
-
-        from   $CLUSTER_PUBLIC   (cluster Envoy)
-        to     $CADDY_IP   (Caddy on vm700)
-
-  Nothing else about the rule changes — same ports, same protocol, same WAN side.
-EOF
-    confirm "Have you changed the router forward to $CADDY_IP?" "done"
-
-    hdr 'Post-switchover verification'
-    sleep 5
-    ok=0; bad=0
-    for h in chat.koeff.com n8n.koeff.com share.koeff.com shareurl.koeff.com \
-             overseerr.koeff.com musicengine.koeff.com omniroute.koeff.com; do
+  verify-public)
+    hdr 'Public hostnames — which stack actually answers'
+    # The discriminator is the TLS certificate serial. An earlier version of this
+    # compared the Server header, which proved worthless: most backends set their
+    # own (nginx on the QNAP, granian for musicengine) and both proxies pass it
+    # through unchanged, so it reported "still on the cluster" for hostnames that
+    # had already moved. Caddy and cert-manager each obtained their own
+    # certificate for every name, so the serials differ and cannot be confused.
+    serial(){ echo | openssl s_client -connect "$1" -servername "$2" 2>/dev/null \
+              | openssl x509 -noout -serial 2>/dev/null | cut -d= -f2; }
+    ok=0; oncluster=0; bad=0
+    for h in chat.koeff.com n8n.koeff.com overseerr.koeff.com musicengine.koeff.com \
+             omniroute.koeff.com share.koeff.com shareurl.koeff.com; do
+      pub=$(serial "$h:443" "$h")
+      cad=$(serial "$CADDY_IP:443" "$h")
+      clu=$(serial "$CLUSTER_PUBLIC:443" "$h")
       code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 12 "https://$h/" 2>/dev/null)
-      who=$(curl -s -I --max-time 12 "https://$h/" 2>/dev/null | grep -i '^server:' | tr -d '\r')
-      if [[ "$code" != "000" ]]; then
-        printf '  %s %-26s %s  %s\n' "$(g ✓)" "$h" "$code" "$who"; ok=$((ok+1))
+      if [[ -z "$pub" ]]; then
+        printf '  %s %-24s no TLS response\n' "$(r ✗)" "$h"; bad=$((bad+1))
+      elif [[ "$pub" == "$cad" ]]; then
+        printf '  %s %-24s %s  Caddy\n' "$(g ✓)" "$h" "$code"; ok=$((ok+1))
+      elif [[ "$pub" == "$clu" ]]; then
+        printf '  %s %-24s %s  still on the cluster\n' "$(y '!')" "$h" "$code"; oncluster=$((oncluster+1))
       else
-        printf '  %s %-26s no response\n' "$(r ✗)" "$h"; bad=$((bad+1))
+        printf '  %s %-24s %s  unknown certificate\n' "$(r ✗)" "$h" "$code"; bad=$((bad+1))
       fi
     done
     printf '\n'
     if ((bad)); then
-      printf '  %s %s of %s public hostnames are not answering.\n' "$(r 'PROBLEM.')" "$bad" "$((ok+bad))"
-      printf '  Roll back now:  %s rollback   (then revert the router to %s)\n' "$0" "$CLUSTER_PUBLIC"
-      exit 1
+      printf '  %s %s hostname(s) broken — roll back.\n' "$(r 'PROBLEM.')" "$bad"; exit 1
+    elif ((oncluster)); then
+      printf '  %s %s of 7 still served by the cluster — the router forward has not taken effect.\n' \
+        "$(y 'PARTIAL.')" "$oncluster"; exit 1
     fi
-    printf '  %s All public hostnames answering through the new edge.\n' "$(g 'SWITCHED OVER.')"
-    printf '  Certificates served here are the ones Caddy obtained; the browser check is\n'
-    printf '  simply visiting https://chat.koeff.com/ with no warning.\n\n'
-    printf '  %s Leave cluster00 running until Caddy has completed at least one\n' "$(y 'Do not decommission yet:')"
-    printf '     certificate renewal. Rollback stays free until you do.\n'
+    printf '  %s All seven public hostnames served by Caddy.\n' "$(g 'SWITCHED OVER.')"
     ;;
 
   rollback)

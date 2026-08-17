@@ -12,11 +12,13 @@
 
 # musicengine.koeff.com - Python/granian music production service
 {{ caddy_host_musicengine }} {
+	import access_log
 	import musicengine_proxy
 }
 
 # omniroute.koeff.com - Omniroute ingress service
 {{ caddy_host_omniroute }} {
+	import access_log
 	import omniroute_proxy
 }
 
@@ -24,41 +26,51 @@
 
 # chat.koeff.com - RocketChat with WebSocket support
 {{ caddy_host_chat }} {
+	import access_log
 	import chat_proxy
 }
 http://{{ caddy_host_chat }} {
+	import access_log
 	import chat_proxy
 }
 
 # n8n.koeff.com - n8n automation platform with WebSocket
 {{ caddy_host_n8n }} {
+	import access_log
 	import n8n_proxy
 }
 http://{{ caddy_host_n8n }} {
+	import access_log
 	import n8n_proxy
 }
 
 # overseerr.koeff.com - Request/availability platform (movie/show management)
 {{ caddy_host_overseerr }} {
+	import access_log
 	import overseerr_proxy
 }
 http://{{ caddy_host_overseerr }} {
+	import access_log
 	import overseerr_proxy
 }
 
 # share.koeff.com - QNAP Qumagie file share via nginx sidecar with CSP injection
 {{ caddy_host_share }} {
+	import access_log
 	import share_proxy
 }
 http://{{ caddy_host_share }} {
+	import access_log
 	import share_proxy
 }
 
 # shareurl.koeff.com - URL converter static site served by nginx sidecar
 {{ caddy_host_shareurl }} {
+	import access_log
 	import shareurl_proxy
 }
 http://{{ caddy_host_shareurl }} {
+	import access_log
 	import shareurl_proxy
 }
 
@@ -73,5 +85,6 @@ http://{{ caddy_host_shareurl }} {
 # not a bodyless 404 from Envoy. This is a deliberate behaviour change — scripts/migrations/verify_caddy.sh
 # must assert it rather than assume parity. See README §10.
 http://:80 {
+	import access_log
 	import koeff_404_proxy
 }
