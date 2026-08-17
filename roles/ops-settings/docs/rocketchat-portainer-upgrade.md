@@ -108,7 +108,7 @@ of 8.5.2 on security.
 ### C. "`portainer-ce:latest` keeps Portainer current." — **REFUTED**
 
 It did the opposite, and the two halves of the failure hid each other.
-`community.docker.docker_container` defaults to `pull: not_present`, so once `latest`
+`community.docker.docker_container` defaults to `pull: missing`, so once `latest`
 had been resolved to a local image nothing re-resolved it and the container was never
 recreated. Meanwhile the tag carried no version into the repo, so no diff, commit or
 review ever showed which Portainer was installed. Result: 2.33.6 from January 2026 —
@@ -221,6 +221,53 @@ ssh vm700 'docker exec rc-mongo mongosh --quiet rocketchat --eval "db.migrations
 Then through the edge, because that is the path users take: `https://chat.koeff.com`
 loads and a message sends; `https://portainer.local.koeff.com` logs in. The play's
 asserts cover the containers; only these two cover Caddy.
+
+### Result — executed 2026-08-17
+
+Both slices applied to vm700. `--tags portainer_stack` finished `ok=7 changed=1`,
+`--tags rocketchat_stack` finished `ok=19 changed=5`, neither with a failure.
+
+| Check | Measured |
+|---|---|
+| Portainer `/api/status` | `2.44.0` |
+| RocketChat `/api/info` | `8.7` |
+| MongoDB `db.version()` | `8.3.8` |
+| `rs.status().ok` | `1` |
+| MongoDB FCV | `8.2` — retreat still open |
+| `migrations.control.version` | `335` — unchanged, zero migrations ran |
+| `chat.koeff.com` via Caddy | HTTP 200, `ssl_verify_result=0`, `/api/info` reports 8.7 |
+| `portainer.local.koeff.com` via Caddy | HTTP 200, `ssl_verify_result=0`, `/api/status` reports 2.44.0 |
+| Dumps on disk | `portainer_data-pre-2.44.0.tar.gz` (145 KB), `rocketchat-<ts>.archive.gz` (8.7 MB) |
+
+The control document still reading 335 after the upgrade is the section 6 claim
+confirmed against the live host rather than only against upstream source: the
+8.4.3 → 8.7.0 move ran no migrations, so the retreat to 8.5.2 remains a pin change.
+
+The synthetic WebSocket check (`curl` with `Upgrade: websocket`) returns 400, which
+is what it returned against the previous stack too — see eval 017, where the same
+check is recorded as not a valid test. A real handshake was not re-run.
+
+### Idempotence
+
+`portainer_stack` is `changed=0` on a second consecutive run.
+
+`rocketchat_stack` is **not**, and each of the three is accounted for:
+
+1. `Ensure target data directories exist with correct ownership` uses `recurse: true`
+   over the uploads tree — pre-existing behaviour, inherited unchanged.
+2. The pre-upgrade dump runs every play by design. It is bounded by
+   `rocketchat_backup_keep` (10).
+3. `Run RocketChat Docker Compose stack` reports `changed` because its only action
+   is `{"id": "rc-mongo-init", "status": "Starting"}` — `mongo-init-replica` is a
+   one-shot service with `restart: "no"`, so `compose up` restarts the exited
+   container each run. Its script is idempotent.
+
+None of the three recreates `rocketchat` or `rc-mongo`: their `Created` timestamps
+were identical across four consecutive plays.
+
+One real defect was found this way and fixed: the compose task had `pull: always`
+against exact pins, which re-fetched both manifests every run and reported `changed`
+without recreating anything. It is now `pull: missing`.
 
 ## 6. Retreat to LTS — checked in source, per component
 
@@ -339,5 +386,25 @@ Covered by eval `018-main-core--rocketchat-portainer-version-pinning.json`.
   a Node.js apps runtime option, both opt-in and both off here.
 - **Portainer 2.45 LTS.** Not released. When it appears it supersedes both candidates.
 - **Rocket.Chat 8.5.3.** Not released. Only relevant if the retreat is taken.
-- **Applying any of this to vm700.** The repo is correct and the plan is executable;
-  nothing has been run against the live host beyond read-only queries.
+- **The `recurse: true` on the uploads directory.** It chowns and chmods the whole
+  uploads tree on every run, which is both the first line of the idempotence list
+  above and O(files) of pointless work. It predates this change and altering
+  permission semantics on a live uploads tree is not something to fold into a
+  version bump.
+- **A real WebSocket handshake through Caddy on 8.7.0.** The synthetic curl check is
+  not a valid test and was not replaced with one.
+
+## 9. Operational notes from the run
+
+- **The first `--tags portainer_stack` run failed twice before succeeding**, and
+  neither failure was the upgrade. First, `pull: not_present` is `docker_image_pull`
+  vocabulary — `docker_container` takes `missing`. Second, the pull itself died with
+  `commit failed: rename .../ingest/... no such file or directory` from containerd's
+  content store; a manual `docker pull` of the same digest succeeded immediately
+  afterwards, and no build or CI container was running at the time. Treat that class
+  of failure as transient and retry before investigating.
+- **Pre-pull before the RocketChat slice.** Both images were pulled by hand with a
+  retry loop before running the play, so a repeat of that containerd failure could
+  not land in the middle of the chat downtime window.
+- **Downtime** was two health-gate retries, roughly 20 seconds, plus container
+  restart.

@@ -280,7 +280,7 @@ caddy_health_delay: 10
 # Pinned by digest, like caddy_image and caddy_envoy_image above, and for the same
 # reason: a floating tag lets an unrelated `make ops` change what runs. Portainer
 # was worse than the usual floating-tag story — `portainer/portainer-ce:latest`
-# combined with docker_container's default `pull: not_present` produced an install
+# combined with docker_container's default `pull: missing` produced an install
 # that was simultaneously unpinned *and* frozen on 2.33.6 from January 2026.
 #
 # --- Which stream: newest (STS), with a checked retreat to LTS -------------------
@@ -424,6 +424,12 @@ rocketchat_uploads_data: /var/lib/docker-data/rocketchat-uploads
 # 93 GB free on /var/lib/docker — the dump costs seconds.
 rocketchat_backup_enabled: true
 rocketchat_backup_dir: /var/lib/docker-data/rocketchat-backups
+# The dump runs on every play rather than only on a version change, because a
+# backup taken only when someone remembers to ask is the one that is missing when
+# it matters. At ~9 MB per run against 98 GB free that is affordable, but not
+# unbounded: the play keeps the newest N and deletes the rest, matching only its
+# own rocketchat-*.archive.gz naming.
+rocketchat_backup_keep: 10
 
 # --- Health gate after compose up ------------------------------------------------
 # Rocket.Chat runs migrations on first boot of a new version before it serves;

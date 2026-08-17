@@ -7,8 +7,8 @@
 #
 #   * `latest` is not a version. Every run was free to move Portainer to a
 #     different release with no diff and no record of what had been installed.
-#   * community.docker.docker_container defaults to `pull: not_present`, so once
-#     the tag was resolved locally it was never re-resolved. The container on
+#   * community.docker.docker_container defaults to `pull: missing`, so once the
+#     tag was resolved locally it was never re-resolved. The container on
 #     vm700 was created 2026-01-28 and was still serving 2.33.6 on 2026-08-17 —
 #     an unmaintained release (2.33 LTS went end-of-maintenance in May 2026),
 #     while `latest` upstream had moved to 2.39.6.
@@ -32,13 +32,20 @@
       an unrelated `make ops` change what runs on the edge; see the header of
       roles/ops-settings/tasks/portainer.yaml.
 
+# Pulled in its own task, as caddy.yaml and omniroute.yaml do, rather than through
+# docker_container's pull option. The two modules do not share a vocabulary —
+# docker_image_pull takes not_present/always, docker_container takes
+# missing/never/always — and keeping the pull in one place means the pin is fetched
+# by the same idiom everywhere in this role.
+- name: Pull the pinned Portainer image by digest
+  community.docker.docker_image_pull:
+    name: "{{ portainer_image }}"
+    pull: "{{ 'always' if portainer_force_pull | bool else 'not_present' }}"
+
 - name: Portainer container
   community.docker.docker_container:
     name: portainer
     image: "{{ portainer_image }}"
-    # Digest-pinned, so `always` re-resolves nothing and costs nothing while the
-    # pin is unchanged; when the pin moves, it is what fetches the new image.
-    pull: "{{ 'always' if portainer_force_pull | bool else 'not_present' }}"
     # community.docker >= 4.0 defaults this to `recreate`; stated explicitly so
     # a collection downgrade cannot silently leave the old container running.
     image_name_mismatch: recreate

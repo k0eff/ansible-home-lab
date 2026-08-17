@@ -93,6 +93,25 @@
       — restore with: docker exec -i rc-mongo mongorestore --archive --gzip --drop < <file>
   when: rocketchat_dump is changed
 
+# The dump runs on every play, not only on version changes — a backup taken only
+# when someone remembers to ask for one is the backup that is missing. That trades
+# idempotence for safety knowingly, and it means the directory grows by ~9 MB per
+# run, so it is bounded here. Only files matching this play's own naming are
+# considered, and the newest rocketchat_backup_keep are always kept.
+- name: Prune old RocketChat dumps
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail &&
+      ls -1t {{ rocketchat_backup_dir }}/rocketchat-*.archive.gz 2>/dev/null
+      | tail -n +{{ rocketchat_backup_keep | int + 1 }}
+      | tr '\n' '\0' | xargs -0 -r rm -f --
+    executable: /bin/bash
+  register: rocketchat_prune
+  changed_when: false
+  when:
+    - rocketchat_backup_enabled | bool
+    - rocketchat_dump is changed
+
 # --- Apply ------------------------------------------------------------------------
 
 - name: Render RocketChat Docker Compose file
@@ -101,11 +120,25 @@
     dest: "{{ rocketchat_stack_dir }}/docker-compose.yml"
     mode: '0644'
 
+# This task reports `changed` on every run and that is expected, not drift. Its
+# only action on a steady-state run is {"id": "rc-mongo-init", "status":
+# "Starting"} — mongo-init-replica is a one-shot service with restart: "no", so
+# `compose up` restarts the exited container each time. Its script is idempotent
+# (rs.status() succeeds, prints "Replica set already initialized", exits) and
+# rc-mongo and rocketchat are NOT recreated: verified 2026-08-17 by comparing
+# container Created timestamps across consecutive runs. Restructuring the
+# replica-set bootstrap to win a cosmetic changed=0 on a live chat database is
+# the wrong trade; knowing which `changed` is real is the point of writing it down.
 - name: Run RocketChat Docker Compose stack
   community.docker.docker_compose_v2:
     project_src: "{{ rocketchat_stack_dir }}"
     state: present
-    pull: always
+    # `missing`, not `always`. Both image references are exact pins, so `always`
+    # re-fetched the same two manifests on every run and reported changed each
+    # time without recreating anything — measured on 2026-08-17: a second
+    # consecutive run said changed while the container Created timestamps did not
+    # move. A changed that is not a change is how real drift gets missed.
+    pull: missing
 
 # --- Verify -----------------------------------------------------------------------
 
