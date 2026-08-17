@@ -129,6 +129,37 @@
       against the minor line, not the patch.
     success_msg: "RocketChat {{ rocketchat_info.json.version }} (pinned {{ rocketchat_image }})"
 
+# The retreat from MongoDB 8.3 to 8.2 is only available while the data files are
+# still at FCV 8.2 — MongoDB permits a single-version downgrade between adjacent
+# releases, but only down to the FCV already in force. mongod never raises FCV on
+# its own and nothing here calls setFeatureCompatibilityVersion, so this should
+# always hold; it is asserted because the failure mode is silent and one-way.
+- name: Read MongoDB featureCompatibilityVersion
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - rc-mongo
+      - mongosh
+      - --quiet
+      - --eval
+      - "db.adminCommand({getParameter: 1, featureCompatibilityVersion: 1}).featureCompatibilityVersion.version"
+  register: rocketchat_mongo_fcv
+  changed_when: false
+
+- name: Assert the MongoDB downgrade path is still open
+  ansible.builtin.assert:
+    that:
+      - rocketchat_mongo_fcv.stdout | trim == rocketchat_mongo_expected_fcv
+    fail_msg: >-
+      MongoDB featureCompatibilityVersion is {{ rocketchat_mongo_fcv.stdout | trim }},
+      expected {{ rocketchat_mongo_expected_fcv }}. Someone ran
+      setFeatureCompatibilityVersion. Downgrading to MongoDB
+      {{ rocketchat_mongo_expected_fcv }} now requires removing every feature the
+      higher FCV enabled first — see the rocketchat_mongo_image comment in
+      defaults/main.yaml.
+    success_msg: "MongoDB FCV {{ rocketchat_mongo_fcv.stdout | trim }} — downgrade to 8.2 remains available"
+
 - name: Validate MongoDB storage disk
   ansible.builtin.command: docker exec rc-mongo df -h /data/db
   register: mongo_disk_check
