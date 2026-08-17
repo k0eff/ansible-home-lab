@@ -1,0 +1,256 @@
+# Managed by ansible — roles/ops-settings/templates/caddy/envoy.yaml.j2
+# Edits here are overwritten on the next run. Change the role instead.
+#
+# One Envoy sidecar replacing the three nginx containers this stack used to run
+# (share proxy, shareurl static site, koeff-404 fallback). Caddy terminates TLS
+# and forwards to this listener over the private compose network; nothing here
+# is published on a host port.
+#
+# What each nginx directive became — the source of truth is still
+# files/caddy/nginx/share-prod-proxy.conf, kept for provenance:
+#
+#   proxy_pass with $1$is_args$args   -> route regex_rewrite (query is carried
+#                                        automatically; Envoy rewrites the path
+#                                        only, so $is_args$args needs no analogue)
+#   proxy_set_header Host             -> host_rewrite_literal
+#   proxy_set_header Accept-Encoding ""-> request_headers_to_remove
+#   proxy_hide_header <h>             -> response_headers_to_remove
+#   add_header <h> ... always         -> response_headers_to_add (append: false)
+#   sub_filter                        -> Lua filter (no native equivalent — see below)
+#   proxy_intercept_errors + error_page 404 -> same Lua filter
+#   location / { return 404; }        -> direct_response on the catch-all route
+#
+# The Lua filter is the one piece that is hand-written rather than translated
+# declaratively. Envoy has no body-rewriting filter, so the two sub_filter rules
+# and the 404 interception are implemented there. It buffers only text/html —
+# buffering file downloads from the NAS would be a memory problem and is why the
+# content-type guard is not optional.
+
+admin:
+  # Loopback only and deliberately not published. Nothing should reach this from
+  # outside the container; the health signal is the listener itself.
+  address:
+    socket_address: { address: 127.0.0.1, port_value: {{ caddy_envoy_admin_port }} }
+
+static_resources:
+  listeners:
+    - name: sidecar
+      address:
+        socket_address: { address: 0.0.0.0, port_value: {{ caddy_sidecar_port }} }
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: sidecar
+                codec_type: AUTO
+                # Caddy already added X-Forwarded-*; do not let Envoy append a
+                # second hop or the NAS sees a list where nginx sent one value.
+                use_remote_address: false
+                skip_xff_append: true
+                route_config:
+                  name: sidecar_routes
+                  virtual_hosts:
+
+                    # ── share.koeff.com — QNAP Qumagie behind path rewrites ──
+                    - name: share
+                      domains: ["{{ caddy_host_share }}"]
+                      typed_per_filter_config:
+                        envoy.filters.http.lua:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
+                          name: share_rewrite
+                      # nginx sent an empty Accept-Encoding so the upstream replies
+                      # in plaintext. Without this the body arrives gzipped and the
+                      # sub_filter equivalent below silently matches nothing.
+                      request_headers_to_remove: ["accept-encoding"]
+                      response_headers_to_remove: ["content-security-policy", "upgrade"]
+                      response_headers_to_add:
+                        - header: { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" }
+                          append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                        - header:
+                            key: "Content-Security-Policy"
+                            value: "{{ caddy_share_csp }}"
+                          append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                      routes:
+                        - match:
+                            safe_regex: { regex: "^/sl/(.*)$" }
+                          route:
+                            cluster: qnap
+                            host_rewrite_literal: "{{ caddy_host_share }}"
+                            regex_rewrite:
+                              pattern: { regex: "^/sl/(.*)$" }
+                              substitution: "/qumagie/sl/\\1"
+                            timeout: {{ caddy_qnap_timeout }}
+                        - match:
+                            safe_regex: { regex: "^/share/(.*)$" }
+                          route:
+                            cluster: qnap
+                            host_rewrite_literal: "{{ caddy_host_share }}"
+                            regex_rewrite:
+                              pattern: { regex: "^/share/(.*)$" }
+                              substitution: "/qumagie/share/\\1"
+                            timeout: {{ caddy_qnap_timeout }}
+                        - match:
+                            safe_regex: { regex: "^/qumagie/(.*)$" }
+                          route:
+                            cluster: qnap
+                            host_rewrite_literal: "{{ caddy_host_share }}"
+                            regex_rewrite:
+                              pattern: { regex: "^/qumagie/(.*)$" }
+                              substitution: "/qumagie/\\1"
+                            timeout: {{ caddy_qnap_timeout }}
+                        - match:
+                            safe_regex: { regex: "^/v3_menu/(.*)$" }
+                          route:
+                            cluster: qnap
+                            host_rewrite_literal: "{{ caddy_host_share }}"
+                            regex_rewrite:
+                              pattern: { regex: "^/v3_menu/(.*)$" }
+                              substitution: "/v3_menu/\\1"
+                            timeout: {{ caddy_qnap_timeout }}
+                        # nginx: location / { return 404; } — which error_page then
+                        # turned into the branded page. Envoy can serve it directly.
+                        - match: { prefix: "/" }
+                          direct_response:
+                            status: 404
+                            body:
+                              inline_string: |
+{{ lookup('file', 'caddy/share-custom-404.html') | indent(32, true) }}
+                          response_headers_to_add:
+                            - header: { key: "Content-Type", value: "text/html" }
+                              append_action: OVERWRITE_IF_EXISTS_OR_ADD
+
+                    # ── shareurl.koeff.com — a single static page ────────────
+                    # The nginx it replaces served exactly one file: / and
+                    # /index.html returned it, everything else 404'd. Inlining it
+                    # removes the whole bitnamilegacy/nginx image, whose tag had
+                    # already been withdrawn from Docker Hub.
+                    - name: shareurl
+                      domains: ["{{ caddy_host_shareurl }}"]
+                      routes:
+                        - match:
+                            safe_regex: { regex: "^/(index\\.html)?$" }
+                          direct_response:
+                            status: 200
+                            body:
+                              inline_string: |
+{{ lookup('file', 'caddy/nginx/shareurl-index.html') | indent(32, true) }}
+                          response_headers_to_add:
+                            - header: { key: "Content-Type", value: "text/html; charset=utf-8" }
+                              append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                            - header: { key: "X-Frame-Options", value: "SAMEORIGIN" }
+                              append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                        - match: { prefix: "/" }
+                          direct_response: { status: 404 }
+
+                    # ── everything else — the koeff-404 fallback ─────────────
+                    # Answers 200, not 404: the nginx it replaces used
+                    # try_files /index.html, so any path returned the page with a
+                    # 200. Preserved deliberately; scripts/migrations/verify_caddy.sh asserts it.
+                    - name: fallback
+                      domains: ["*"]
+                      routes:
+                        - match: { prefix: "/" }
+                          direct_response:
+                            status: 200
+                            body:
+                              inline_string: |
+{{ lookup('file', 'caddy/nginx/koeff-404-index.html') | indent(32, true) }}
+                          response_headers_to_add:
+                            - header: { key: "Content-Type", value: "text/html; charset=utf-8" }
+                              append_action: OVERWRITE_IF_EXISTS_OR_ADD
+
+                http_filters:
+                  - name: envoy.filters.http.lua
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+                      # Default is a no-op. Only the share vhost opts in, via
+                      # LuaPerRoute above — otherwise the direct_response pages
+                      # would be rewritten too.
+                      default_source_code:
+                        inline_string: |
+                          function envoy_on_request(handle) end
+                          function envoy_on_response(handle) end
+                      source_codes:
+                        share_rewrite:
+                          inline_string: |
+                            -- Replaces nginx's sub_filter and error_page handling.
+                            --
+                            -- Plain string replacement, never string.gsub: the
+                            -- injected HTML and the patterns both contain Lua
+                            -- pattern metacharacters ('-' is a quantifier), and a
+                            -- gsub would either error or silently mangle them.
+                            local function replace_all(s, needle, repl)
+                              local out, pos = {}, 1
+                              while true do
+                                local a, b = string.find(s, needle, pos, true)
+                                if not a then
+                                  out[#out + 1] = string.sub(s, pos)
+                                  break
+                                end
+                                out[#out + 1] = string.sub(s, pos, a - 1)
+                                out[#out + 1] = repl
+                                pos = b + 1
+                              end
+                              return table.concat(out)
+                            end
+
+                            local CSP_FROM = '<meta http-equiv="Content-Security-Policy"'
+                            local CSP_TO   = '<meta http-equiv="X-Disabled-CSP"'
+                            local HEAD_FROM = '</head>'
+                            local HEAD_TO   = '{{ caddy_share_og_injection }}'
+                            local NOT_FOUND = [==[{{ lookup('file', 'caddy/share-custom-404.html') }}]==]
+
+                            function envoy_on_request(handle) end
+
+                            function envoy_on_response(handle)
+                              local h = handle:headers()
+                              local status = h:get(":status")
+
+                              -- proxy_intercept_errors on; error_page 404 /custom_404
+                              -- Any 404 from the NAS is replaced with the branded page.
+                              if status == "404" then
+                                h:replace("content-type", "text/html")
+                                h:replace("content-length", tostring(#NOT_FOUND))
+                                local body = handle:body()
+                                if body ~= nil then body:setBytes(NOT_FOUND) end
+                                return
+                              end
+
+                              -- sub_filter_types text/html — anything else streams
+                              -- through untouched. Buffering a NAS file download
+                              -- here would blow up memory.
+                              local ct = h:get("content-type")
+                              if ct == nil or string.find(ct, "text/html", 1, true) == nil then
+                                return
+                              end
+
+                              local body = handle:body()
+                              if body == nil or body:length() == 0 then return end
+
+                              local s = body:getBytes(0, body:length())
+                              -- sub_filter_once off — every occurrence, both rules.
+                              s = replace_all(s, CSP_FROM, CSP_TO)
+                              s = replace_all(s, HEAD_FROM, HEAD_TO)
+
+                              body:setBytes(s)
+                              h:replace("content-length", tostring(#s))
+                            end
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  clusters:
+    - name: qnap
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      connect_timeout: {{ caddy_qnap_connect_timeout }}
+      load_assignment:
+        cluster_name: qnap
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: {{ caddy_qnap_host }}
+                      port_value: {{ caddy_qnap_port }}

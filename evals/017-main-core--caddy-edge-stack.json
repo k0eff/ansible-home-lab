@@ -1,0 +1,70 @@
+{
+  "id": "017",
+  "branch": "main",
+  "name": "core--caddy-edge-stack",
+  "category": "core",
+  "description": "Caddy edge stack on vm700 replaces the cluster00 ingress layer (Envoy Gateway + ingress-nginx + MetalLB + cert-manager) with one container plus four verbatim nginx sidecars. Written to run in parallel with the cluster so every hostname can be proven before any DNS moves; nothing is cut over by this change",
+  "implementation": {
+    "file": "roles/ops-settings/tasks/caddy.yaml",
+    "change": "New task file plus templates/caddy/{Caddyfile.j2,10-snippets.caddy.j2,20-public.caddy.j2,30-internal.caddy.j2,40-v2.caddy.j2,docker-compose.yml.j2,env.j2}, the six cluster nginx ConfigMaps extracted verbatim into files/caddy/nginx/, and caddy_* defaults; imported from tasks/main.yaml under tag caddy_stack after the OmniRoute import. Caddy is pulled by digest (ghcr.io/caddybuilds/caddy-cloudflare@sha256:a37a6472f8a47f9bc90b039ec8dec1eacd0115db666556f002662fca3fd8f397), never built, following the OmniRoute precedent. TLS comes from ACME DNS-01 via Cloudflare using the same CERT_MANAGER_CLOUDFLARE_TOKEN the cluster already uses, read from the controller environment with lookup('env') and never copied into this repository. caddy_enabled defaults to false so an unrelated 'make ops' cannot bind :80/:443 on a live host"
+  },
+  "validation": {
+    "type": "service_deployed",
+    "checks": [
+      "STATIC (done, no deploy needed): ansible-playbook --syntax-check passes; all seven Jinja2 templates parse; the three pre-existing files (tasks/main.yaml, defaults/main.yaml, verify_vm700.sh) changed additively only — 175 insertions, and the sole deletion is verify_vm700.sh's port loop being extended from '9000 9443 6666 20130' to '80 443 9000 9443 6666 20130'",
+      "STATIC (done): no Dockerfile and no build step anywhere — building on vm700 is forbidden per eval 016",
+      "STATIC (done): only the caddy service publishes host ports (80, 443, TCP only); all four nginx sidecars use expose, since host 8080 belongs to playwright-mcp",
+      "STATIC (done): no secret value present in the repository; env.j2 renders from lookup('env', ...) and the token tasks carry no_log",
+      "STATIC (done): the six extracted nginx ConfigMaps are byte-identical to the cluster except two documented substitutions — resolver 169.254.25.10 (kube-dns) and the qnap-qumagie-service cluster DNS name, which becomes the literal 192.168.31.108:8080 that its EndpointSlice actually targets",
+      "PASS (staging deploy 2026-08-16): ansible-playbook -l ops --tags caddy_stack -e caddy_enabled=true completes with failed=0, ok=23 changed=3",
+      "PASS: docker ps shows caddy plus four nginx sidecars up; only caddy publishes 80/443, both confirmed OPEN from the network",
+      "PASS: 21 of 21 request/response pairs match the live cluster byte-for-byte on status — 6 public hostnames, 5 share paths, 6 internal hostnames, 4 plain-HTTP checks. Zero divergences",
+      "PASS: share.koeff.com matrix matches exactly (/qumagie/ 200, /share/ 200, /sl/ 200, /v3_menu/ 403, / 404) AND the body carries the injected og:title and the X-Disabled-CSP marker. Both paths return 1628 bytes; the sub_filter and CSP rewrite survive the move intact",
+      "PASS: shareurl.koeff.com static site is byte-identical between cluster and Caddy (3905 bytes, matching sha)",
+      "PASS: plain HTTP on :80 proxies without redirect — chat 200, n8n 200, overseerr 307, shareurl 200, each identical to the cluster",
+      "PASS: real WebSocket handshakes return 101 Switching Protocols through Caddy for chat.koeff.com/websocket and n8n.koeff.com/rest/push, identical to the cluster. grafana /api/live/ws and portainer /api/websocket/exec return 401 on both paths — that is app authentication, not a proxy failure. curl's synthetic upgrade returns 400 on both and is not a valid test",
+      "PASS: co-tenants unaffected after deploy — rocketchat 6666=200, mpe 8770=303, litellm 4000=200, grafana 3000=302, prometheus 9090=302, omniroute 20130=307, qdrant 6333=200, portainer 9000=200, headroom 8787=200, playwright-mcp 8080 still holds its port",
+      "PASS: the cluster is untouched — both Gateways still PROGRAMMED=True, all Envoy pods Running, .235/.237 still serving every hostname",
+      "PASS: Let's Encrypt PRODUCTION certificates issued and served (issuers YE1/YE2, expiring 2026-11-14). curl WITHOUT -k returns 200 with ssl_verify_result=0 for chat, n8n and share — the certificates are publicly trusted, no client-side exception needed. The staging rehearsal ran first on purpose so the two deploy defects were found without spending production ACME budget",
+      "PASS: scripts/migrations/verify_caddy.sh reports 42 passed / 0 failed against production certificates",
+      "PASS: the four nginx sidecars are replaced by one Envoy. The stack is two containers (caddy, envoy) where it was five, and docker.io/bitnamilegacy/nginx is gone from the host entirely — the static pages it served are Envoy direct_response bodies needing no image and no filesystem",
+      "PASS: the Envoy Lua filter reproduces nginx sub_filter byte-for-byte — share.koeff.com/qumagie/ returns 1627 bytes from both the cluster and the new stack, carrying og:title and X-Disabled-CSP. The QNAP path matrix is unchanged (200/200/200/403/404)",
+      "PASS: idempotence — two consecutive runs both report changed=0, ok=24",
+      "PASS: all images pinned by immutable digest, no floating tags: caddy 2.11.4 and envoy distroless-v1.38.3. Updates are deliberate and manual by design",
+      "PENDING: litellm streams incrementally rather than buffering to the end. Only /health/liveliness was checked (200 on both); a real streaming completion was not exercised",
+      "PENDING: certificates survive a container restart without re-issuing",
+      "PENDING soak: at least one real ACME renewal observed before the cluster is decommissioned. Cluster cert expiry is staggered 2026-09-16 to 2026-11-14 and cert-manager renews at ~2/3 lifetime, so renewals fall inside a two-week window",
+      "PENDING: verify_vm700.sh reports ports 80 and 443 OPEN when run through the playbook"
+    ]
+  },
+  "known_deltas": [
+    "Rate limiting is dropped for musicengine and omniroute. The live BackendTrafficPolicies set 50 req/s, but Caddy's rate_limit directive comes from mholt/caddy-ratelimit, which the pinned image does not ship. Caddy refuses to load a Caddyfile containing an unknown directive, so keeping it would fail startup for all hostnames, not just those two. Adding the module requires a build, which is forbidden on this host",
+    "The HTTP-to-HTTPS redirect stays off in phase 1, mirroring today's behaviour. Enabling it is a separate decision, made after chat and overseerr have been observed on the new stack",
+    "HTTP/3 is disabled (protocols h1 h2). The router forwards TCP only, so advertising Alt-Svc would cause clients to attempt H3, stall, and fall back"
+  ],
+  "blocks": [
+    "shareurl.koeff.com depends on docker.io/bitnami/nginx:1.25.3-debian-11-r6, which now returns HTTP 404 from Docker Hub after Bitnami's 2025 restructuring. The sidecar uses bitnamilegacy/nginx:1.25.3-debian-11-r6 (verified HTTP 200). This is also a live fragility in the cluster today: the running pod survives only on node3's image cache and will not come back from a reschedule"
+  ],
+  "defects_found_and_fixed_during_deploy": [
+    "docker-compose.yml.j2 mounted the Caddyfile as a second, overlapping bind on top of the read-only /etc/caddy directory mount. Docker cannot create a mountpoint inside a read-only mount, so the caddy container failed to start with 'read-only file system' while all four nginx sidecars came up. Fixed by rendering the Caddyfile into conf.d and mounting that one directory",
+    "The role's readiness gate only probed :80, and Caddy binds plain HTTP immediately while ACME is still issuing. The first run therefore reported 'ready' — with a message claiming certificates had been issued — at a moment when :443 completed no TLS handshake at all and every HTTPS request returned 000. Added a second gate that requires a completed TLS handshake, using curl --resolve because SNI is needed and the hostname's public DNS still points at the cluster, plus an explicit fail task so a stuck ACME cannot pass silently",
+    "Three variants of the same silent-no-op bug, all found during the Envoy migration. (a) The docker-compose.yml render task was accidentally deleted while editing, so compose read a stale file, recreated nothing, and every task still reported ok while the host kept running the old stack. (b) Compose only recreates a container when its service definition changes, so editing a Caddyfile or snippet left the new config unread on disk — this is what produced a stack that 502'd with a fully green play. Fixed with a graceful 'caddy reload', gated on a config template actually changing so idempotence holds. (c) The same applies to envoy.yaml, which is a bind mount compose does not diff; the sidecar is now restarted when and only when that template changes",
+    "Added an 'envoy --mode validate' task in a throwaway container before compose touches the stack. YAML validity does not imply Envoy validity, and a bad config would otherwise stop the old sidecar and crash-loop the new one, taking share.koeff.com and shareurl.koeff.com down until someone read the logs"
+  ],
+  "switchover_readiness": {
+    "state": "prepared, not executed — awaiting the operator's signal",
+    "script": "scripts/migrations/switchover_caddy.sh (plan | apply | rollback | status)",
+    "scriptable_half": "Six *.local.koeff.com A records move 192.168.31.237 -> 192.168.31.152 via the Cloudflare API, using the same token cert-manager and Caddy already use. apply is gated behind a full scripts/migrations/verify_caddy.sh pass and a typed confirmation",
+    "manual_half": "The router's :80/:443 forward must move 192.168.31.235 -> 192.168.31.152. Not reachable from here; apply stops and waits for confirmation rather than pretending otherwise",
+    "no_change_needed": "The seven public hostnames already resolve to the WAN address 151.251.104.115. Only the router decides which internal host that lands on, so their DNS records are not touched",
+    "rollback": "switchover.sh rollback repoints the six records at the cluster and prints the router revert. The cluster is never stopped, so this is a repoint rather than a restore. Cloudflare TTL is auto (300s), so both directions take effect within ~5 minutes",
+    "found_while_preparing": [
+      "shareurl.local.koeff.com -> 192.168.31.235 is an orphan: no HTTPRoute serves it and it returns 000 from the cluster and from Caddy alike. Excluded from the switchover; worth deleting separately",
+      "alertmanager/elasticsearch/kibana/local.koeff.com all point at 192.168.31.240, which does not respond to ping. Four stale records, unrelated to this migration",
+      "cluster00-node1/2/3.local.koeff.com point at the cluster VMs and will go stale when it is decommissioned"
+    ]
+  },
+  "status": "pass",
+  "validated_on": "vm700 (192.168.31.152), /opt/caddy, Let's Encrypt production. Deployed 2026-08-16 in parallel with cluster00; no DNS changed, no cluster state touched. Verified by scripts/migrations/verify_caddy.sh — 42 passed, 0 failed",
+  "not_caused_by_this_change": "mpe-api (musicengine.koeff.com backend, port 8770) went down at 21:08:27, four minutes after the Caddy container started at 21:04:21. It was a clean stop (exit 0, not OOM) followed by a rename to mpe-api-srvlocal at 21:08:34 — a deliberate action by something else; this role contains no mpe tasks and ran tag-scoped to caddy_stack. The cluster returns 503 for the same hostname, confirming the backend itself is down rather than the routing. scripts/migrations/verify_caddy.sh was subsequently taught to distinguish a dead upstream (5xx on both paths) from an actual routing divergence, so this cannot masquerade as a migration failure again"
+}

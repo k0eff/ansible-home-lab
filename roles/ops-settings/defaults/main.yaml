@@ -65,3 +65,212 @@ omniroute_auth_cookie_secure: true
 #   -e omniroute_force_pull=true
 # after moving omniroute_image to a tag that has been republished in place.
 omniroute_force_pull: false
+
+# --- Caddy edge stack (https://caddy.koeff.com/.../18 hostnames) -----------
+#
+# Replaces the cluster ingress (Envoy Gateway koeff-public / koeff-public-v2
+# plus five nginx Deployments) with two Docker containers on vm700: Caddy for
+# TLS, ACME and host routing, and one Envoy sidecar for the static pages and
+# the share.koeff.com response rewriting.
+# See roles/ops-settings/docs/caddy.md for full architecture and rationale.
+#
+# MASTER SWITCH: This stack binds host :80/:443 on a live ops box. Defaults to
+# false so an unintended `make ops` does not start a new edge proxy.
+# Enable deliberately: --tags caddy_stack -e caddy_enabled=true
+caddy_enabled: false
+
+# Stack paths — follow the /opt/<name> convention.
+caddy_stack_dir: /opt/caddy
+# Persistent storage for ACME certificates and Caddy state.
+# Losing /data silently re-issues 18 certs and burns Let's Encrypt rate limits.
+# Override to /var/lib/docker-data/caddy-staging for the first staging dry run.
+caddy_data_dir: /var/lib/docker-data/caddy
+
+# Docker compose project name. Pins container and network names.
+caddy_project_name: caddy
+# User-defined bridge network for Caddy ↔ nginx sidecars.
+caddy_network_name: caddy-net
+
+# --- Caddy image — PULLED, NEVER BUILT -----------------------------------------
+# Building images on this host peaked at 13.4 GB RSS and OOM-killed RocketChat,
+# LiteLLM and music-production-engine (see omniroute.yaml header). Pinned by
+# digest so an upstream retag cannot change what runs at the edge.
+caddy_image: ghcr.io/caddybuilds/caddy-cloudflare@sha256:a37a6472f8a47f9bc90b039ec8dec1eacd0115db666556f002662fca3fd8f397
+# Documentation only; must move in step with caddy_image.
+caddy_image_version: "2.11.4"
+
+# Sidecar image. One Envoy replaces the three nginx containers this stack used
+# to run (share proxy, shareurl static site, koeff-404 fallback). That also
+# retires docker.io/bitnamilegacy/nginx:1.25.3-debian-11-r6, whose bitnami/ path
+# Docker Hub withdrew in its 2025 restructuring — the static page it served is
+# now an Envoy direct_response and needs no image at all.
+#
+# Pinned by digest, and intentionally NOT :latest — this must only ever move
+# when someone deliberately moves it. Updating is manual: pick a new
+# distroless-vX.Y.Z tag, resolve its amd64 index digest, change both lines here.
+# v1.38.x is the same minor line the cluster's Envoy Gateway runs, so behaviour
+# is the one already proven in this environment.
+caddy_envoy_image: docker.io/envoyproxy/envoy@sha256:574348fada8eb1130b448132287d76626dfb07525b16668075382f8e154a45a8
+# Documentation only; must move in step with caddy_envoy_image.
+caddy_envoy_image_version: "distroless-v1.38.3"
+
+# Envoy admin API. Container loopback only, never published.
+caddy_envoy_admin_port: 9901
+
+# Upstream timeouts for the QNAP. nginx had no explicit proxy_read_timeout and
+# inherited its 60s default; keeping that rather than inventing a new number.
+caddy_qnap_timeout: 60s
+caddy_qnap_connect_timeout: 5s
+
+# Re-pull even when present locally. Run with -e caddy_force_pull=true after
+# moving a tag that has been republished in place (mirrors omniroute_force_pull).
+caddy_force_pull: false
+
+# --- Ports -----------------------------------------------------------------------
+# Host ports published by docker-compose. Both are free on vm700 (verified).
+caddy_http_port: 80
+caddy_https_port: 443
+# Container-internal port for the Envoy sidecar.
+# Never published — host 8080 belongs to playwright-mcp.
+caddy_sidecar_port: 8080
+
+# Caddy admin API — full config control. Bound to container loopback,
+# not published. Health checks use :80 with a Host: header instead.
+caddy_admin_listen: localhost:2019
+
+# --- HTTP/3 and redirects ---------------------------------------------------------
+# Caddy enables HTTP/3 on UDP/443 and advertises Alt-Svc by default.
+# The router forwards TCP only; clients attempt H3, stall, and fall back —
+# intermittent slow first connections. Disable it.
+caddy_enable_http3: false
+
+# Caddy redirects HTTP→HTTPS by default. Disabled by design; today's Gateway
+# serves plain HTTP 200 on :80 with no redirect, and real traffic depends on it
+# (overseerr monitor 1247 req/week, chat WebSocket 334 req/week with 77 terminated).
+# A redirect can break WebSocket upgrades on clients that don't follow redirects.
+# This value renders `auto_https disable_redirects` in the Caddyfile global block.
+caddy_enable_https_redirect: false
+
+# --- TLS — Let's Encrypt + Cloudflare DNS-01 ------------------------------------
+# ACME directory. Override to acme-staging-v02 (together with caddy_data_dir)
+# for the first dry run; the 50-cert-per-domain-per-week rate limit is real.
+caddy_acme_ca: https://acme-v02.api.letsencrypt.org/directory
+
+# DNS provider (only module in the pinned image).
+caddy_acme_dns_provider: cloudflare
+
+# Environment variable NAMES (never values). Read on the Ansible controller.
+# lookup('env', ...) is evaluated on the Mac, not on vm700.
+# These are the same credentials cert-manager uses, defined in
+# helmfile-home-lab/protected/envs/cluster00/vars.sh. Nothing is copied into
+# ansible-home-lab/protected/ — this repo is public.
+caddy_acme_token_env: CERT_MANAGER_CLOUDFLARE_TOKEN
+caddy_acme_email_env: CERT_MANAGER_CLOUDFLARE_EMAIL
+
+# DNS-01 propagation check — must not use the LAN resolver 192.168.31.149 (down).
+# Uses these public resolvers and a 5-minute timeout instead.
+caddy_acme_dns_resolvers: ["1.1.1.1:53", "8.8.8.8:53"]
+caddy_acme_dns_propagation_timeout: 5m
+
+# --- Backend addresses (from live Endpoints objects, not Service specs) ----------
+# vm700's LAN address. Nine of the eleven distinct backends live here.
+caddy_backend_host: 192.168.31.152
+
+# QNAP (share.koeff.com sidecar backend).
+caddy_qnap_host: 192.168.31.108
+# Service port 8090, Endpoints port 8080 — not a typo fix.
+caddy_qnap_port: 8080
+
+# Off-host backends.
+caddy_n8n_backend: 192.168.31.110:5678
+caddy_overseerr_backend: 192.168.31.144:5055
+
+# --- vm700 port assignments ------------------------------------------------------
+# All read from live Endpoints, not Service specs (e.g. RocketChat Service says
+# 8080 but Endpoints says 6666).
+caddy_rocketchat_port: 6666
+caddy_musicengine_port: 8770
+caddy_omniroute_port: 20130
+caddy_grafana_port: 3000
+caddy_prometheus_port: 9090
+caddy_litellm_port: 4000
+caddy_qdrant_port: 6333
+caddy_headroom_port: 8787
+caddy_portainer_port: 9000
+
+# --- Hostnames (18 public + 1 parallel-run fallback) ----------------------------
+# Production public.
+caddy_host_chat: chat.koeff.com
+caddy_host_n8n: n8n.koeff.com
+caddy_host_overseerr: overseerr.koeff.com
+caddy_host_musicengine: musicengine.koeff.com
+caddy_host_omniroute: omniroute.koeff.com
+caddy_host_share: share.koeff.com
+caddy_host_shareurl: shareurl.koeff.com
+
+# Production internal (*.local.koeff.com — private IPs, HTTPS only).
+caddy_host_grafana: grafana.local.koeff.com
+caddy_host_prometheus: prometheus.local.koeff.com
+caddy_host_litellm: litellm.local.koeff.com
+caddy_host_qdrant: qdrant.local.koeff.com
+caddy_host_headroom: headroom.local.koeff.com
+caddy_host_portainer: portainer.local.koeff.com
+
+# Parallel-run v2 hostnames — RETIRED 2026-08-16.
+# These were staging twins of the prod hostnames, pointing at identical backends.
+# Their Cloudflare records have been removed: dig returns NXDOMAIN for all six,
+# so Caddy could never obtain a certificate for them and nothing can reach them.
+# Left defined rather than deleted so the templates that reference them still
+# render; flipping caddy_v2_enabled back on requires recreating the DNS first.
+caddy_v2_enabled: false
+caddy_host_chat_v2: chat-v2.koeff.com
+caddy_host_n8n_v2: n8n-v2.koeff.com
+caddy_host_overseerr_v2: overseerr-v2.koeff.com
+caddy_host_share_v2: share-v2.koeff.com
+caddy_host_shareurl_v2: shareurl-v2.koeff.com
+# Was the 19th hostname (HTTPRoute koeff-public-v2-smoke). Its DNS record is gone
+# too; emptied so it is not served or requested from ACME.
+caddy_host_koeff_public_v2: ""
+
+# --- share.koeff.com content rewriting -------------------------------------------
+# Extracted verbatim from files/caddy/nginx/share-prod-proxy.conf, which stays on
+# disk as the reference for what this must reproduce. The Envoy sidecar applies
+# the CSP header replacement declaratively and the OpenGraph injection through a
+# Lua filter, because Envoy has no equivalent of nginx's sub_filter.
+#
+# Quoting is load-bearing: the CSP contains single quotes and no double quotes,
+# the injection contains double quotes and no single quotes. Keep them opposite.
+caddy_share_csp: "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net *.googleapis.com *.jwpcdn.com; style-src 'self' 'unsafe-inline' *.googleapis.com; img-src 'self' data: https://raw.githubusercontent.com *.googleapis.com *.jwpcdn.com; font-src 'self' data: fonts.gstatic.com; connect-src 'self'; media-src 'self'; object-src 'none'; frame-src 'self'; worker-src 'self' blob:;"
+# Replaces </head>, and re-closes the tag itself — dropping the trailing </head>
+# would produce unterminated markup.
+caddy_share_og_injection: '<meta property="og:title" content="Koeff Family File Share"><meta property="og:image" content="https://raw.githubusercontent.com/k0eff/helmfile-home-lab/main/assets/share.koeff.com-heart.png"><meta property="og:image:width" content="128"><meta property="og:image:height" content="128"><meta property="og:type" content="website"><script src="https://cdn.jsdelivr.net/gh/k0eff/helmfile-home-lab@3c193ea7e5874ce6cb83acfab871455d22eea8fe/assets/brand.js"></script></head>'
+
+# --- Non-default directives (see README.md §6) -----------------------------------
+# headroom.local carries the cluster's ONLY non-default timeout.
+caddy_headroom_timeout: 600s
+
+# litellm only. Disables response buffering so SSE tokens reach the client as
+# produced; without it streamed completions arrive in one lump at the end.
+caddy_sse_flush_interval: -1
+
+# --- Logging and persistence -----------------------------------------------------
+caddy_log_format: json
+caddy_log_level: INFO
+caddy_restart_policy: unless-stopped
+
+# Runtime memory ceilings. memswap_limit is pinned to mem_limit so a leak is
+# killed rather than left to swap the host to death (how vm700 went down twice).
+caddy_memory_mb: 512
+# One Envoy replaced four nginx containers (4 x 128 MB). It gets more headroom
+# than any single nginx had because the Lua filter buffers text/html response
+# bodies from the NAS before rewriting them — non-HTML streams through untouched,
+# which is what keeps this number small.
+caddy_envoy_memory_mb: 256
+# Envoy's access logging is off and this only governs its own diagnostics.
+# Raise to info while debugging a routing change.
+caddy_envoy_log_level: warn
+
+# --- Health gate after compose up (wait for first-run ACME) ----------------------
+# Must outlast DNS-01 issuance of 18 certificates — retries*delay = 300s.
+caddy_health_retries: 30
+caddy_health_delay: 10

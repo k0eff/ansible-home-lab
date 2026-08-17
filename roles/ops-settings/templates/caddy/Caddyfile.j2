@@ -1,0 +1,78 @@
+# Caddy edge stack on vm700 (192.168.31.152)
+# Replaces the cluster ingress path (Envoy Gateway + nginx Deployments in ns-homelab-main)
+# with four Docker containers managed by roles/ops-settings/tasks/caddy.yaml.
+#
+# The Caddyfile is composed of five parts:
+# - Global options (inline below, imported files are fragile)
+# - 10-snippets.caddy: reverse_proxy bodies for each backend
+# - 20-public.caddy: public hostnames (http:// and https://)
+# - 30-internal.caddy: internal *.local.koeff.com hostnames (https:// only)
+# - 40-v2.caddy: v2 parallel-run hostnames (gated on caddy_v2_enabled)
+
+{
+	# --- ACME (Let's Encrypt via Cloudflare DNS-01) ---
+
+	# Read the CF API token from the environment (set in .env from
+	# lookup('env', 'CERT_MANAGER_CLOUDFLARE_TOKEN') — see caddy.yaml assert).
+	# The value is never copied into this public repo and never printed.
+	acme_dns cloudflare {env.CF_API_TOKEN}
+
+	# Email for Let's Encrypt certificate expiry notifications.
+	# Set to lookup('env', 'CERT_MANAGER_CLOUDFLARE_EMAIL') in caddy.yaml assert —
+	# the same account cert-manager uses, defined in helmfile-home-lab/protected/envs/cluster00/vars.sh.
+	email {env.ACME_EMAIL}
+
+	# Structured logging (JSON format to match the Envoy access-log shape,
+	# which was used to analyze real :80 traffic in README §5).
+	log {
+		format json
+		level INFO
+	}
+
+	# --- HTTP/3 and TLS ---
+
+	# Disable HTTP/3 (UDP/443). Caddy advertises Alt-Svc by default, but the
+	# router forwards TCP only. Clients attempt H3, stall, and fall back to H2,
+	# producing intermittent slow first connections. Re-enable after UDP/443
+	# is forwarded by the router (helmfile-home-lab/roles/infrastructure/).
+	servers {
+		protocols h1 h2
+	}
+
+	# Let's Encrypt production directory (not staging — this is live).
+	acme_ca {{ caddy_acme_ca }}
+
+	# --- HTTP→HTTPS handling ---
+
+	# Disable Caddy's default HTTP→HTTPS redirect. Today's Gateway serves plain
+	# HTTP 200 on :80 with no redirect, and 19 hours of Envoy access logs show
+	# real :80 traffic (overseerr: 1247 req/~1.6 min from an automated monitor;
+	# chat: 334 req incl. 77 terminated WebSocket connections). A redirect can
+	# break WebSocket upgrade on clients that don't follow redirects on upgrade.
+	#
+	# Phase 1 mirrors today's behaviour exactly. This is a measured decision,
+	# documented in README §5. The redirect is a separate, later decision.
+	auto_https disable_redirects
+
+	# --- Admin API ---
+
+	# Caddy admin API (full config control). Bound to container loopback and
+	# not published to a host port. Health checks reach Caddy through :80 with
+	# a Host: header instead. See caddy.yaml health gate.
+	admin localhost:2019
+}
+
+# Snippets: reverse_proxy bodies for each backend.
+# Imported by both http:// and https:// site blocks to guarantee identical proxying.
+import /etc/caddy/10-snippets.caddy
+
+# Public hostnames (external access via :80/:443).
+import /etc/caddy/20-public.caddy
+
+# Internal hostnames (*.local.koeff.com, HTTPS only).
+import /etc/caddy/30-internal.caddy
+
+# v2 parallel-run hostnames (if enabled).
+{% if caddy_v2_enabled %}
+import /etc/caddy/40-v2.caddy
+{% endif %}

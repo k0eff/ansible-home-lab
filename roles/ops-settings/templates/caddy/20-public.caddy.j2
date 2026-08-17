@@ -1,0 +1,77 @@
+# Public hostnames (external access via :80/:443 from the WAN forward on 192.168.31.235)
+#
+# These are structured in two layers:
+# - Bare hostnames (no scheme) bind :443 only once auto_https disable_redirects is set.
+# - Explicit http:// blocks bind :80. Without them, plain HTTP is unreachable.
+#
+# Each hostname is served identically on both schemes by importing the same
+# reverse_proxy snippet. This structural guarantee prevents drift between
+# http and https handling for the same backend.
+
+# --- :443 only (musicengine, omniroute) ---
+
+# musicengine.koeff.com - Python/granian music production service
+{{ caddy_host_musicengine }} {
+	import musicengine_proxy
+}
+
+# omniroute.koeff.com - Omniroute ingress service
+{{ caddy_host_omniroute }} {
+	import omniroute_proxy
+}
+
+# --- :80 and :443 (chat, n8n, overseerr, share, shareurl) ---
+
+# chat.koeff.com - RocketChat with WebSocket support
+{{ caddy_host_chat }} {
+	import chat_proxy
+}
+http://{{ caddy_host_chat }} {
+	import chat_proxy
+}
+
+# n8n.koeff.com - n8n automation platform with WebSocket
+{{ caddy_host_n8n }} {
+	import n8n_proxy
+}
+http://{{ caddy_host_n8n }} {
+	import n8n_proxy
+}
+
+# overseerr.koeff.com - Request/availability platform (movie/show management)
+{{ caddy_host_overseerr }} {
+	import overseerr_proxy
+}
+http://{{ caddy_host_overseerr }} {
+	import overseerr_proxy
+}
+
+# share.koeff.com - QNAP Qumagie file share via nginx sidecar with CSP injection
+{{ caddy_host_share }} {
+	import share_proxy
+}
+http://{{ caddy_host_share }} {
+	import share_proxy
+}
+
+# shareurl.koeff.com - URL converter static site served by nginx sidecar
+{{ caddy_host_shareurl }} {
+	import shareurl_proxy
+}
+http://{{ caddy_host_shareurl }} {
+	import shareurl_proxy
+}
+
+# --- :80 only fallback (unknown hostnames) ---
+
+# koeff-404 - Fallback for unmatched hostnames on plain HTTP.
+# No :443 catch-all is defined; see README §10. Unknown SNI fails the handshake,
+# matching the Gateway's per-hostname HTTPS listeners. If a wildcard HTTPS site
+# is added later it will re-introduce on-demand TLS and turn arbitrary SNI into
+# certificate orders, which is a separate decision.
+# The answer is 200 with the nice koeff-404 fallback page (try_files /index.html =404),
+# not a bodyless 404 from Envoy. This is a deliberate behaviour change — scripts/migrations/verify_caddy.sh
+# must assert it rather than assume parity. See README §10.
+http://:80 {
+	import koeff_404_proxy
+}

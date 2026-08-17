@@ -1,0 +1,195 @@
+# Reverse proxy snippets for each backend.
+# Each snippet is imported by both http:// and https:// site blocks to guarantee
+# identical proxying. Never inline a reverse_proxy in a site block.
+
+# --- Public backends (prod) ---
+
+# chat.koeff.com - RocketChat with WebSocket support
+(chat_proxy) {
+	reverse_proxy {{ caddy_backend_host }}:{{ caddy_rocketchat_port }} {
+		# WebSocket support is native to Caddy 2; no directive needed.
+		# Request body size is unlimited (Caddy default), matching nginx's proxy_body_size 0.
+	}
+}
+
+# n8n.koeff.com - n8n automation platform with WebSocket
+(n8n_proxy) {
+	reverse_proxy {{ caddy_n8n_backend }} {
+		# WebSocket support is native to Caddy 2; no directive needed.
+	}
+}
+
+# overseerr.koeff.com - Request/availability platform (movie/show management)
+(overseerr_proxy) {
+	reverse_proxy {{ caddy_overseerr_backend }}
+}
+
+# musicengine.koeff.com - Python/granian music production service
+# NOTE: Rate limiting is absent. The live Envoy BackendTrafficPolicy enforces
+# 50 req/s per remote IP (musicengine-ratelimit). The rate_limit directive comes
+# from github.com/mholt/caddy-ratelimit, which is not compiled into the pinned
+# Caddy image (ghcr.io/caddybuilds/caddy-cloudflare). Shipping an unknown directive
+# would refuse to load the Caddyfile and take all 18 hostnames down. This is an
+# accepted delta; see README §9 for options (prebuilt image, build elsewhere, or
+# leave the cluster's BackendTrafficPolicy in place during cutover).
+(musicengine_proxy) {
+	reverse_proxy {{ caddy_backend_host }}:{{ caddy_musicengine_port }}
+}
+
+# omniroute.koeff.com - Omniroute ingress service
+# NOTE: Rate limiting is absent for the same reason as musicengine (see above).
+# The live Envoy BackendTrafficPolicy enforces 50 req/s per remote IP
+# (omniroute-ratelimit).
+(omniroute_proxy) {
+	reverse_proxy {{ caddy_backend_host }}:{{ caddy_omniroute_port }}
+}
+
+# share.koeff.com - QNAP Qumagie file share via nginx sidecar with CSP injection
+# The sidecar's sub_filter chain, CSP add_header, and OpenGraph injection are
+# preserved exactly as in the cluster ConfigMap (files/caddy/nginx/share-prod-proxy.conf).
+# The nginx config disables Accept-Encoding to force plaintext upstream so sub_filter
+# can rewrite the body. Do not add 'encode' directive — it would bypass that careful setup.
+(share_proxy) {
+	reverse_proxy http://{{ caddy_project_name }}-envoy-1:{{ caddy_sidecar_port }} {
+		# The Envoy sidecar selects its virtual host from this header, so it is
+		# load-bearing rather than cosmetic: unset it and the request lands on the
+		# catch-all vhost and quietly returns the fallback page instead of the site.
+		header_up Host {{ caddy_host_share }}
+		# Forwarded on to the QNAP by the sidecar, matching what nginx sent.
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-For {http.request.remote.host}
+	}
+}
+
+# shareurl.koeff.com - static page, served directly by the Envoy sidecar as a
+# direct_response. No image and no filesystem behind it any more.
+(shareurl_proxy) {
+	reverse_proxy http://{{ caddy_project_name }}-envoy-1:{{ caddy_sidecar_port }} {
+		header_up Host {{ caddy_host_shareurl }}
+	}
+}
+
+# --- Internal backends (*.local.koeff.com) ---
+
+# grafana.local.koeff.com - Grafana metrics dashboard with live streaming panels
+(grafana_local_proxy) {
+	reverse_proxy {{ caddy_backend_host }}:{{ caddy_grafana_port }} {
+		# WebSocket support is native to Caddy 2; no directive needed.
+	}
+}
+
+# prometheus.local.koeff.com - Prometheus metrics backend
+(prometheus_local_proxy) {
+	reverse_proxy {{ caddy_backend_host }}:{{ caddy_prometheus_port }}
+}
+
+# litellm.local.koeff.com - LiteLLM proxy for LLM API aggregation
+(litellm_local_proxy) {
+	reverse_proxy {{ caddy_backend_host }}:{{ caddy_litellm_port }} {
+		# SSE streaming: disable response buffering so tokens reach the client
+		# as they are produced, not in one lump at the end.
+		flush_interval {{ caddy_sse_flush_interval }}
+	}
+}
+
+# qdrant.local.koeff.com - Qdrant vector database
+(qdrant_local_proxy) {
+	reverse_proxy {{ caddy_backend_host }}:{{ caddy_qdrant_port }} {
+		# Request body size is unlimited (Caddy default), which is correct
+		# for large vector uploads and queries.
+	}
+}
+
+# headroom.local.koeff.com - Headroom application (long-running requests)
+# CRITICAL: The live HTTPRoute headroom-local carries timeouts: {request: 600s, backendRequest: 600s}.
+# This is the ONLY non-default timeout in the entire cluster. It must be preserved.
+(headroom_local_proxy) {
+	reverse_proxy {{ caddy_backend_host }}:{{ caddy_headroom_port }} {
+		# Apply the 600s timeout to both the read and write sides of this connection.
+		# transport { read_timeout, write_timeout } applies to the reverse_proxy transport.
+		transport http {
+			read_timeout {{ caddy_headroom_timeout }}
+			write_timeout {{ caddy_headroom_timeout }}
+		}
+	}
+}
+
+# portainer.local.koeff.com - Portainer container management UI
+(portainer_local_proxy) {
+	reverse_proxy {{ caddy_backend_host }}:{{ caddy_portainer_port }} {
+		# WebSocket support is native to Caddy 2; no directive needed.
+	}
+}
+
+# --- v2 parallel-run backends (if enabled) ---
+{% if caddy_v2_enabled %}
+
+# chat-v2.koeff.com - RocketChat (v2)
+(chat_v2_proxy) {
+	reverse_proxy {{ caddy_backend_host }}:{{ caddy_rocketchat_port }} {
+		# WebSocket support is native to Caddy 2; no directive needed.
+	}
+}
+
+# n8n-v2.koeff.com - n8n automation platform (v2)
+(n8n_v2_proxy) {
+	reverse_proxy {{ caddy_n8n_backend }} {
+		# WebSocket support is native to Caddy 2; no directive needed.
+	}
+}
+
+# overseerr-v2.koeff.com - Request/availability platform (v2)
+(overseerr_v2_proxy) {
+	reverse_proxy {{ caddy_overseerr_backend }}
+}
+
+# share-v2.koeff.com - retired along with the rest of the v2 set.
+#
+# Re-enabling caddy_v2_enabled is NOT enough to bring this one back: it used a
+# dedicated sidecar whose only difference was the hostname printed in its 404
+# body, and that sidecar no longer exists. Envoy would need a fourth virtual host
+# in envoy.yaml.j2 with its own copy of the 404 page. Pointed at the prod share
+# vhost meanwhile so the snippet still renders rather than referencing a
+# container that was deleted.
+(share_v2_proxy) {
+	reverse_proxy http://{{ caddy_project_name }}-envoy-1:{{ caddy_sidecar_port }} {
+		# Host: share.koeff.com, not share-v2 — matches what the cluster sent to
+		# the QNAP.
+		header_up Host {{ caddy_host_share }}
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-For {http.request.remote.host}
+	}
+}
+
+# shareurl-v2.koeff.com - URL converter static site (v2)
+(shareurl_v2_proxy) {
+	reverse_proxy http://{{ caddy_project_name }}-envoy-1:{{ caddy_sidecar_port }} {
+		header_up Host {{ caddy_host_shareurl }}
+	}
+}
+
+# koeff-public-v2.koeff.com - HTTPRoute koeff-public-v2-smoke, HTTP-only, same backend as shareurl
+# The 19th hostname (outside the 18-count brief) required to make the :80 parity count = 11 exact.
+# Set caddy_host_koeff_public_v2 to "" to drop this hostname.
+{% if caddy_host_koeff_public_v2 %}
+(koeff_public_v2_proxy) {
+	reverse_proxy http://{{ caddy_project_name }}-envoy-1:{{ caddy_sidecar_port }} {
+		header_up Host {{ caddy_host_shareurl }}
+	}
+}
+{% endif %}
+
+# koeff-404 - Fallback for unmatched hostnames on :80 (HTTP only, no :443 catch-all)
+(koeff_404_proxy) {
+	reverse_proxy http://{{ caddy_project_name }}-envoy-1:{{ caddy_sidecar_port }}
+}
+
+{% else %}
+
+# koeff-404 - Fallback for unmatched hostnames on :80 (HTTP only, no :443 catch-all)
+# Always defined (not gated on caddy_v2_enabled).
+(koeff_404_proxy) {
+	reverse_proxy http://{{ caddy_project_name }}-envoy-1:{{ caddy_sidecar_port }}
+}
+
+{% endif %}

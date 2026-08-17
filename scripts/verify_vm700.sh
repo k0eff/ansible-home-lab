@@ -13,8 +13,8 @@ fi
 
 echo "Checking service ports..."
 
-# 9000/9443 Portainer, 6666 RocketChat, 20130 OmniRoute dashboard
-for port in 9000 9443 6666 20130; do
+# 80/443 Caddy edge, 9000/9443 Portainer, 6666 RocketChat, 20130 OmniRoute dashboard
+for port in 80 443 9000 9443 6666 20130; do
     echo -n "Port $port: "
     if nc -z -G 2 $IP $port &> /dev/null; then
         echo "OPEN"

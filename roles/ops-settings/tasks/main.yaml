@@ -133,6 +133,11 @@
   tags:
     - omniroute_stack
 
+- name: Import Caddy edge stack setup
+  import_tasks: caddy.yaml
+  tags:
+    - caddy_stack
+
 - name: Verify Playwright‑MCP Docker image builds and contains Chromium
   block:
     - name: Build Playwright‑MCP Docker image on localhost
@@ -159,7 +164,7 @@
         msg: "Chromium binary location: {{ chromium_check.stdout }}"
 
 - name: Verify connectivity and open ports
-  ansible.builtin.command: "{{ playbook_dir }}/verify_vm700.sh"
+  ansible.builtin.command: "{{ playbook_dir }}/scripts/verify_vm700.sh"
   delegate_to: localhost
   become: false
   changed_when: false

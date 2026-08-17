@@ -1,0 +1,354 @@
+---
+# Caddy edge stack on vm700 (192.168.31.152), published through the cluster's Envoy
+# gateway (helmfile-home-lab: values/common/koeff-public-gateway.yaml.gotmpl).
+#
+# This stack replaces six nginx Deployments and the Envoy Gateway's public/internal
+# routing listeners with two Docker containers: Caddy (the edge reverse proxy, TLS
+# and ACME) and one Envoy sidecar that serves the static pages and performs the
+# request/response transformation share.koeff.com needs.
+#
+# The Caddy image is pulled, never built here. A docker compose build on this host
+# peaked at 13.4 GB RSS and OOM-killed RocketChat, LiteLLM and music-production-engine
+# (see roles/ops-settings/tasks/omniroute.yaml for details). Certificates and state
+# must survive container restarts or ACME renewals silently re-issue and burn Let's
+# Encrypt rate limits.
+#
+# This stack binds host :80 and :443 on a live box. caddy_enabled defaults to false
+# to prevent unintended startup on the next unrelated make ops. Enable explicitly
+# with --tags caddy_stack -e caddy_enabled=true.
+#
+# Deploy: in helmfile-home-lab, ". ./protected/main.sh cluster00" to load Cloudflare
+# credentials into the environment, then in the SAME shell, in ansible-home-lab:
+#   make ops  (skips caddy_stack while caddy_enabled=false)
+#   ansible-playbook ... --tags caddy_stack -e caddy_enabled=true
+#
+# Staging dry run (recommended before production):
+#   ansible-playbook ... --tags caddy_stack \
+#     -e caddy_enabled=true \
+#     -e caddy_acme_ca=https://acme-staging-v02.api.letsencrypt.org/directory \
+#     -e caddy_data_dir=/var/lib/docker-data/caddy-staging
+#
+# lookup('env', ...) is evaluated on the Ansible controller (the Mac), not on vm700;
+# the Cloudflare credentials must be in the controller's environment at play time.
+
+- name: Define Caddy paths
+  ansible.builtin.set_fact:
+    caddy_stack_dir: /opt/caddy
+    caddy_data_dir: /var/lib/docker-data/caddy
+  when: caddy_enabled | bool
+
+- name: Ensure Caddy directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ caddy_stack_dir }}", mode: "0755" }
+    - { path: "{{ caddy_stack_dir }}/conf.d", mode: "0755" }
+    - { path: "{{ caddy_data_dir }}/data", mode: "0700" }
+    - { path: "{{ caddy_data_dir }}/config", mode: "0700" }
+  loop_control:
+    label: "{{ item.path }}"
+  when: caddy_enabled | bool
+
+- name: Read Cloudflare API token from environment
+  ansible.builtin.set_fact:
+    caddy_cf_api_token: "{{ lookup('env', caddy_acme_token_env) }}"
+  no_log: true
+  when: caddy_enabled | bool
+
+- name: Read ACME email from environment
+  ansible.builtin.set_fact:
+    caddy_acme_email: "{{ lookup('env', caddy_acme_email_env) }}"
+  no_log: true
+  when: caddy_enabled | bool
+
+- name: Assert Cloudflare API token is set
+  ansible.builtin.assert:
+    that:
+      - caddy_cf_api_token | length > 0
+    fail_msg: >-
+      Caddy needs CERT_MANAGER_CLOUDFLARE_TOKEN in the environment. Load it by running
+      in helmfile-home-lab: ". ./protected/main.sh cluster00"
+      Then run ansible from ansible-home-lab IN THE SAME SHELL.
+  when: caddy_enabled | bool
+
+- name: Assert ACME email is set
+  ansible.builtin.assert:
+    that:
+      - caddy_acme_email | length > 0
+    fail_msg: >-
+      Caddy needs CERT_MANAGER_CLOUDFLARE_EMAIL in the environment. Load it by running
+      in helmfile-home-lab: ". ./protected/main.sh cluster00"
+      Then run ansible from ansible-home-lab IN THE SAME SHELL.
+  when: caddy_enabled | bool
+
+- name: Render Caddy environment file
+  # env.j2 contains CF_API_TOKEN and ACME_EMAIL, never logged or printed.
+  ansible.builtin.template:
+    src: caddy/env.j2
+    dest: "{{ caddy_stack_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: caddy_enabled | bool
+
+- name: Render Caddy global configuration
+  # Caddyfile.j2 contains global options, imports for snippets and partial configs.
+  ansible.builtin.template:
+    src: caddy/Caddyfile.j2
+    dest: "{{ caddy_stack_dir }}/conf.d/Caddyfile"
+    owner: root
+    group: root
+    mode: "0644"
+  register: caddy_t_global
+  when: caddy_enabled | bool
+
+- name: Render Caddy reverse-proxy snippets
+  # 10-snippets.caddy.j2 defines one snippet per backend; both http and https site
+  # blocks import the same snippet to guarantee identical proxying on :80 and :443.
+  ansible.builtin.template:
+    src: caddy/10-snippets.caddy.j2
+    dest: "{{ caddy_stack_dir }}/conf.d/10-snippets.caddy"
+    owner: root
+    group: root
+    mode: "0644"
+  register: caddy_t_snippets
+  when: caddy_enabled | bool
+
+- name: Render Caddy public hostnames
+  # 20-public.caddy.j2 covers the 7 prod + 5 v2 public hostnames, with both :80
+  # and :443 site blocks for those that answer on :80 today.
+  ansible.builtin.template:
+    src: caddy/20-public.caddy.j2
+    dest: "{{ caddy_stack_dir }}/conf.d/20-public.caddy"
+    owner: root
+    group: root
+    mode: "0644"
+  register: caddy_t_public
+  when: caddy_enabled | bool
+
+- name: Render Caddy internal hostnames
+  # 30-internal.caddy.j2 covers the 6 *.local.koeff.com names (HTTPS only).
+  ansible.builtin.template:
+    src: caddy/30-internal.caddy.j2
+    dest: "{{ caddy_stack_dir }}/conf.d/30-internal.caddy"
+    owner: root
+    group: root
+    mode: "0644"
+  register: caddy_t_internal
+  when: caddy_enabled | bool
+
+- name: Render Caddy v2 parallel-run hostnames
+  # 40-v2.caddy.j2 covers the 5 v2 hostnames and koeff-public-v2 (if enabled).
+  ansible.builtin.template:
+    src: caddy/40-v2.caddy.j2
+    dest: "{{ caddy_stack_dir }}/conf.d/40-v2.caddy"
+    owner: root
+    group: root
+    mode: "0644"
+  register: caddy_t_v2
+  when: caddy_enabled | bool
+
+- name: Render the Envoy sidecar configuration
+  # One Envoy replaces the four nginx containers this stack used to run. The
+  # nginx configs stay in files/caddy/nginx/ as the reference this must reproduce
+  # — they are no longer mounted anywhere, but they are what the QNAP path
+  # matrix, the CSP replacement and the OpenGraph injection were copied from, and
+  # diffing against them is how a future change gets checked.
+  ansible.builtin.template:
+    src: caddy/envoy.yaml.j2
+    dest: "{{ caddy_stack_dir }}/envoy.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: caddy_t_envoy
+  when: caddy_enabled | bool
+
+- name: Pull the Caddy image by digest
+  # ghcr.io/caddybuilds/caddy-cloudflare pinned to the exact digest. This digest
+  # is immutable; a retag upstream cannot change what runs here. Modules compiled in:
+  # caddy-dns/cloudflare and caddy-cloudflare-ip only — rate_limit is deliberately
+  # absent and is not reproduced (see roles/ops-settings/docs/caddy.md §9).
+  community.docker.docker_image_pull:
+    name: "{{ caddy_image }}"
+    pull: "{{ 'always' if caddy_force_pull | bool else 'not_present' }}"
+  when: caddy_enabled | bool
+
+- name: Pull the Envoy sidecar image by digest
+  # docker.io/envoyproxy/envoy pinned to an immutable digest, deliberately not a
+  # floating tag: this must only move when someone changes it on purpose. To
+  # update, pick a new distroless-vX.Y.Z, resolve its amd64 index digest, and
+  # change caddy_envoy_image and caddy_envoy_image_version together.
+  community.docker.docker_image_pull:
+    name: "{{ caddy_envoy_image }}"
+    pull: "{{ 'always' if caddy_force_pull | bool else 'not_present' }}"
+  when: caddy_enabled | bool
+
+- name: Validate the Envoy configuration before anything starts using it
+  # Envoy refuses to start on a malformed config, and compose would leave the old
+  # container stopped and the new one crash-looping — share.koeff.com and
+  # shareurl.koeff.com would be down until someone read the logs. A throwaway
+  # container with --mode validate parses the config and exits without binding a
+  # port or touching the running stack, so a bad render fails the play here
+  # instead of in production. YAML validity is not enough: this is what catches a
+  # wrong filter name, a bad regex, or a typed_config schema mismatch.
+  ansible.builtin.command:
+    cmd: >-
+      docker run --rm
+      -v {{ caddy_stack_dir }}/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      {{ caddy_envoy_image }}
+      --mode validate --config-path /etc/envoy/envoy.yaml
+  register: caddy_envoy_validate
+  changed_when: false
+  failed_when: caddy_envoy_validate.rc != 0
+  when: caddy_enabled | bool
+
+- name: Render docker-compose.yml for the Caddy stack
+  # Must be rendered before docker_compose_v2 reads it. Leaving a stale compose
+  # file on disk is silent: compose sees no change, recreates nothing, and the
+  # play still reports success while the host keeps running the previous stack.
+  ansible.builtin.template:
+    src: caddy/docker-compose.yml.j2
+    dest: "{{ caddy_stack_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  when: caddy_enabled | bool
+
+- name: Start the Caddy edge stack
+  # docker_compose_v2 project_src points to /opt/caddy, which contains the rendered
+  # Caddyfile, docker-compose.yml, and nginx config mounts. state: present means
+  # "start or update"; build: never forbids any image builds on this host (which is
+  # the whole reason for pulling the pinned digest above). The compose file references
+  # the pulled images by name, so compose finds them present and never triggers a build.
+  #
+  # remove_orphans is required, not cosmetic: the four nginx sidecars this stack
+  # used to run carry the same compose project label. Without it they keep running
+  # after being dropped from the compose file, still bound to the network under the
+  # names the old Caddy config pointed at — so a half-migrated stack would keep
+  # answering and look healthy.
+  community.docker.docker_compose_v2:
+    project_src: "{{ caddy_stack_dir }}"
+    project_name: "{{ caddy_project_name }}"
+    state: present
+    build: never
+    remove_orphans: true
+  when: caddy_enabled | bool
+
+- name: Restart the Envoy sidecar when its configuration changed
+  # envoy.yaml is a bind mount, and compose compares service definitions rather
+  # than the contents of mounted files — so editing it alone leaves the running
+  # Envoy on the previous config with every task still reporting ok. Envoy has no
+  # hot reload here (no xDS, no admin /quitquitquit wiring), so the container is
+  # restarted. Gated on the template actually changing, otherwise every run would
+  # bounce the sidecar and briefly 502 share.koeff.com for no reason.
+  community.docker.docker_container:
+    name: "{{ caddy_project_name }}-envoy-1"
+    state: started
+    restart: true
+  when:
+    - caddy_enabled | bool
+    - caddy_t_envoy.changed
+
+- name: Reload the Caddy configuration
+  # Compose only recreates a container when its own service definition changes.
+  # Editing the Caddyfile or a snippet changes neither, so without this the new
+  # config sits on disk unread and the play still reports success — which is
+  # exactly how a routing change to the sidecars produced a stack that 502'd
+  # while every task said ok. Reload is graceful and idempotent: Caddy validates
+  # the new config first and keeps serving the old one if it does not load.
+  ansible.builtin.command:
+    cmd: docker exec {{ caddy_project_name }}-caddy-1 caddy reload --config /etc/caddy/Caddyfile
+  register: caddy_reload
+  changed_when: caddy_reload.rc == 0
+  when:
+    - caddy_enabled | bool
+    - caddy_t_global.changed or caddy_t_snippets.changed or caddy_t_public.changed
+      or caddy_t_internal.changed or caddy_t_v2.changed
+
+- name: Wait for Caddy to answer on plain HTTP
+  # Health check: curl http://127.0.0.1:80 with Host: shareurl.koeff.com.
+  # Caddy is ready when it answers 200 on the first request. On first run this can
+  # take many minutes because DNS-01 must issue 18 certificates for koeff.com in
+  # parallel, each requiring Cloudflare DNS record propagation checks (total timeout
+  # is 5 minutes per name). The retries account for this.
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:80/"
+    headers:
+      Host: "{{ caddy_host_shareurl }}"
+    status_code: [200]
+  register: caddy_health
+  until: caddy_health.status is defined and caddy_health.status == 200
+  retries: 30
+  delay: 10
+  when: caddy_enabled | bool
+
+- name: Wait for Caddy to serve TLS
+  # The :80 gate above is NOT sufficient evidence of readiness. Caddy binds and
+  # serves plain HTTP immediately, while ACME DNS-01 is still working through the
+  # certificate order for every hostname. Between those two moments :443 accepts
+  # the TCP connection and then fails the handshake, so a curl reports 000 and the
+  # site is effectively down. An earlier run reported "ready" in exactly that state.
+  # Gate on a completed TLS handshake instead. validate_certs is off on purpose:
+  # the staging rehearsal issues certs from an untrusted CA, and what is being
+  # proven here is that a certificate exists and the handshake completes.
+  #
+  # curl rather than the uri module: this must hit the LOCAL Caddy, and the
+  # hostname's public DNS record still points at the cluster. Only --resolve
+  # redirects the connection while keeping the SNI that Caddy needs to select
+  # the right certificate; a Host: header cannot do that for TLS.
+  ansible.builtin.command:
+    cmd: >-
+      curl -sk -o /dev/null -w '%{http_code}'
+      --max-time 10
+      --resolve {{ caddy_host_shareurl }}:443:127.0.0.1
+      https://{{ caddy_host_shareurl }}/
+  register: caddy_tls_health
+  changed_when: false
+  failed_when: false
+  until: caddy_tls_health.stdout == "200"
+  retries: 60
+  delay: 15
+  when: caddy_enabled | bool
+
+- name: Fail if TLS never came up
+  ansible.builtin.fail:
+    msg: >-
+      Caddy is serving plain HTTP but never completed a TLS handshake for
+      {{ caddy_host_shareurl }} (last curl code: {{ caddy_tls_health.stdout | default('none') }}).
+      ACME almost certainly failed. Check: docker logs caddy-caddy-1 | grep -iE 'error|failed'
+  when:
+    - caddy_enabled | bool
+    - caddy_tls_health.stdout | default('') != "200"
+
+- name: Verify share sidecar answers with the correct path matrix
+  # Parity check: the share.koeff.com path matrix from the cluster ConfigMap.
+  # /qumagie/ 200, /share/ 200, /sl/ 200, /v3_menu/ 403, / 404.
+  # This exercises the sidecar's sub_filter and verifies the proxy routing is
+  # working to the QNAP backend.
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:80{{ item.path }}"
+    headers:
+      Host: "{{ caddy_host_share }}"
+    status_code: "{{ item.status }}"
+  loop:
+    - { path: "/qumagie/", status: 200 }
+    - { path: "/share/", status: 200 }
+    - { path: "/sl/", status: 200 }
+    - { path: "/v3_menu/", status: 403 }
+    - { path: "/", status: 404 }
+  when: caddy_enabled | bool
+
+- name: Report stack readiness
+  ansible.builtin.debug:
+    msg: >-
+      Caddy edge stack is ready on vm700 (192.168.31.152). Public hostnames answer
+      on :80 and :443 (18 total + fallback). ACME certificates were issued via DNS-01
+      and are stored at {{ caddy_data_dir }}/data for persistence across restarts.
+      Internal *.local hostnames answer on :443 only. Run scripts/migrations/verify_caddy.sh to audit
+      the full routing and certificate state against the live Gateway.
+  when: caddy_enabled | bool

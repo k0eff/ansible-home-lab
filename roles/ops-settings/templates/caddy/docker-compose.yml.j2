@@ -1,0 +1,91 @@
+# Managed by ansible — roles/ops-settings/templates/caddy/docker-compose.yml.j2
+# Edits here are overwritten on the next run. Change the role instead.
+#
+# Caddy edge stack on vm700 (192.168.31.152), serving all 18 public hostnames
+# plus the fallback 404 handler. Four nginx sidecars proxy specialized backend
+# requirements (WebSockets, QNAP shares, static sites). All containers run on
+# a private user-defined bridge network; only Caddy publishes host ports.
+
+name: {{ caddy_project_name }}
+
+networks:
+  # User-defined bridge — the only path from Caddy to the nginx sidecars.
+  # The stack's name is prepended by docker-compose, yielding caddy-caddy-net.
+  {{ caddy_network_name }}:
+    driver: bridge
+
+services:
+  # Caddy 2.11.4 with cloudflare DNS module, pinned by digest to prevent
+  # upstream retags from changing what runs. The image is PULLED, never built
+  # on this host (see roles/ops-settings/tasks/omniroute.yaml for why: a
+  # compose build peaked at 13.4 GB RSS and OOM-killed the box twice).
+  #
+  # Replaces the Envoy Gateway + five nginx Deployments from the cluster.
+  # Binds host :80/:443 (TCP only; HTTP/3 is off). ACME via Let's Encrypt
+  # production, DNS-01 through Cloudflare. Certificates live on a bind mount
+  # so renewals survive restarts or a lost container silently re-issues and
+  # burns Let's Encrypt rate limits.
+  caddy:
+    image: ghcr.io/caddybuilds/caddy-cloudflare@sha256:a37a6472f8a47f9bc90b039ec8dec1eacd0115db666556f002662fca3fd8f397
+    restart: {{ caddy_restart_policy }}
+    networks:
+      - {{ caddy_network_name }}
+    ports:
+      # TCP only. HTTP/3 disabled: the router forwards TCP only, and H3 would
+      # stall and fall back, producing intermittent slow first connections.
+      - "{{ caddy_http_port }}:80"
+      - "{{ caddy_https_port }}:443"
+    volumes:
+      # Caddyfile and the per-hostname snippets, all rendered by ansible into
+      # conf.d and mounted as ONE directory. They must not be two mounts: a
+      # separate file mount at /etc/caddy/Caddyfile fails with "read-only file
+      # system" because Docker mounts this directory first and then cannot
+      # create the mountpoint inside it. Caddy picks up /etc/caddy/Caddyfile
+      # by default, so this layout needs no --config flag.
+      - "{{ caddy_stack_dir }}/conf.d:/etc/caddy:ro"
+      # ACME certificates and Caddy's internal state. Must survive restarts
+      # or DNS-01 renewals silently re-issue and burn LE rate limits.
+      - "{{ caddy_data_dir }}/data:/data"
+      # Caddy's persisted configuration snapshots. Separates the certificate
+      # lifecycle from the Caddyfile lifecycle for admin API calls.
+      - "{{ caddy_data_dir }}/config:/config"
+    env_file: .env
+    # The admin API is bound to container loopback and not published; health
+    # checks go through :80 with a Host: header instead.
+    environment:
+      CADDY_ADMIN: "{{ caddy_admin_listen }}"
+    mem_limit: "{{ caddy_memory_mb }}m"
+    memswap_limit: "{{ caddy_memory_mb }}m"
+
+  # Sidecar — one Envoy in place of the four nginx containers this stack used to
+  # run. It serves three virtual hosts, selected by the Host header Caddy passes
+  # through: share.koeff.com (QNAP path rewrites, CSP replacement and OpenGraph
+  # injection), shareurl.koeff.com (a single static page), and a catch-all that
+  # answers the branded fallback for any unmatched hostname on :80.
+  #
+  # Consolidating them is possible because three of the four nginx containers did
+  # nothing but return one static file, which is a direct_response here and needs
+  # no image, no filesystem and no config mount. That also retired the
+  # bitnamilegacy/nginx dependency whose tag Docker Hub had already withdrawn.
+  #
+  # The share vhost is the exception: nginx's sub_filter has no Envoy equivalent,
+  # so the body rewriting runs in a Lua filter defined in envoy.yaml.j2.
+  envoy:
+    image: "{{ caddy_envoy_image }}"
+    restart: {{ caddy_restart_policy }}
+    networks:
+      - {{ caddy_network_name }}
+    expose:
+      # Internal port only. Host port 8080 is taken by playwright-mcp.
+      - "{{ caddy_sidecar_port }}"
+    volumes:
+      - "{{ caddy_stack_dir }}/envoy.yaml:/etc/envoy/envoy.yaml:ro"
+    command:
+      - "--config-path"
+      - "/etc/envoy/envoy.yaml"
+      # Envoy's own logs are noise here; Caddy already logs every request that
+      # reaches this sidecar. Raise to info when debugging a routing change.
+      - "--log-level"
+      - "{{ caddy_envoy_log_level }}"
+    mem_limit: "{{ caddy_envoy_memory_mb }}m"
+    memswap_limit: "{{ caddy_envoy_memory_mb }}m"

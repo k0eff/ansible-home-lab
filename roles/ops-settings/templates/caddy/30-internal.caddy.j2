@@ -1,0 +1,36 @@
+# Internal hostnames (*.local.koeff.com)
+#
+# These six names resolve to a private IP in public Cloudflare DNS (192.168.31.237).
+# No split-horizon DNS; the LAN resolver 192.168.31.149 is down, clients fall back
+# to 8.8.8.8. They are HTTPS only today, matching the cluster Envoy Gateway
+# (which has no HTTP listeners for these names). No :80 blocks are defined.
+
+# grafana.local.koeff.com - Grafana metrics dashboard with live streaming panels
+{{ caddy_host_grafana }} {
+	import grafana_local_proxy
+}
+
+# prometheus.local.koeff.com - Prometheus metrics backend
+{{ caddy_host_prometheus }} {
+	import prometheus_local_proxy
+}
+
+# litellm.local.koeff.com - LiteLLM proxy for LLM API aggregation (SSE streaming)
+{{ caddy_host_litellm }} {
+	import litellm_local_proxy
+}
+
+# qdrant.local.koeff.com - Qdrant vector database
+{{ caddy_host_qdrant }} {
+	import qdrant_local_proxy
+}
+
+# headroom.local.koeff.com - Headroom application (long-running requests, 600s timeout)
+{{ caddy_host_headroom }} {
+	import headroom_local_proxy
+}
+
+# portainer.local.koeff.com - Portainer container management UI
+{{ caddy_host_portainer }} {
+	import portainer_local_proxy
+}

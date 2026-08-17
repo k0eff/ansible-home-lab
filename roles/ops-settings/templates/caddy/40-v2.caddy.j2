@@ -1,0 +1,64 @@
+# v2 parallel-run hostnames (caddy_v2_enabled = true)
+#
+# During the Envoy Gateway parallel run, these v2 hostnames route to identical
+# backends as their prod twins (same ports, same internal addresses).
+# They are structured identically: :80 and :443 for the public hostnames,
+# each importing the same reverse_proxy snippet to guarantee identical handling
+# on both schemes.
+#
+# Set caddy_v2_enabled to false at sunset to drop the entire :80/:443 load
+# from the old stack in one flag flip.
+
+# --- :80 and :443 (chat-v2, n8n-v2, overseerr-v2, share-v2, shareurl-v2) ---
+
+# chat-v2.koeff.com - RocketChat (v2)
+{{ caddy_host_chat_v2 }} {
+	import chat_v2_proxy
+}
+http://{{ caddy_host_chat_v2 }} {
+	import chat_v2_proxy
+}
+
+# n8n-v2.koeff.com - n8n automation platform (v2)
+{{ caddy_host_n8n_v2 }} {
+	import n8n_v2_proxy
+}
+http://{{ caddy_host_n8n_v2 }} {
+	import n8n_v2_proxy
+}
+
+# overseerr-v2.koeff.com - Request/availability platform (v2)
+{{ caddy_host_overseerr_v2 }} {
+	import overseerr_v2_proxy
+}
+http://{{ caddy_host_overseerr_v2 }} {
+	import overseerr_v2_proxy
+}
+
+# share-v2.koeff.com - QNAP Qumagie file share via nginx sidecar (v2)
+{{ caddy_host_share_v2 }} {
+	import share_v2_proxy
+}
+http://{{ caddy_host_share_v2 }} {
+	import share_v2_proxy
+}
+
+# shareurl-v2.koeff.com - URL converter static site (v2)
+{{ caddy_host_shareurl_v2 }} {
+	import shareurl_v2_proxy
+}
+http://{{ caddy_host_shareurl_v2 }} {
+	import shareurl_v2_proxy
+}
+
+# --- :80 only (koeff-public-v2) ---
+
+# koeff-public-v2.koeff.com - HTTPRoute koeff-public-v2-smoke, HTTP-only
+# The 19th hostname (outside the 18-count brief), required to make the :80 parity
+# count = 11 exact. Back-end is nginx-shareurl, same as shareurl-v2.
+# Set caddy_host_koeff_public_v2 to "" to drop this hostname.
+{% if caddy_host_koeff_public_v2 %}
+http://{{ caddy_host_koeff_public_v2 }} {
+	import koeff_public_v2_proxy
+}
+{% endif %}
