@@ -1,0 +1,322 @@
+---
+# imot2026 stack on vm700 (192.168.31.152) — MongoDB + Kafka + the nine
+# imot2026-app services from imotbgScraper2026, sharing one image that is
+# built ON this host (imotbgScraper2026/docs/spec/deployment.md §3: the
+# laptop is arm64, vm700 is amd64, so the image cannot be pushed from here).
+# Ported into ansible-home-lab following the same house pattern as
+# roles/ops-settings/tasks/caddy.yaml: /opt/<name> stack dir, state under
+# /var/lib/docker-data, templated compose + env, docker_compose_v2
+# (state: present, build: never), a health gate afterwards.
+#
+# The compose file and .env are NOT re-authored here — they are templated
+# directly from imotbgScraper2026/deploy/{docker-compose.yml.j2,env.j2}. That
+# is the same "one source, no copy" choice roles/ops-settings/tasks/
+# omniroute.yaml already makes for a compose file owned by another project
+# (it checks out docker-compose.prod.yml rather than re-authoring it), and it
+# is what docker-compose.yml.j2 asks for in its own header: "Never edit the
+# rendered file by hand; edit this template and re-run the playbook" —
+# imotbgScraper2026/deploy/deploy.yaml even runs scripts/preflight.sh to catch
+# exactly this kind of drift. Keeping a second, hand-maintained copy in this
+# repo is the drift that check exists to prevent. See docs/imot2026.md §1 for
+# where this was weighed against caddy.yaml's self-authored-template pattern.
+#
+# BUILD, NOT PULL: unlike caddy/omniroute there is no published image to pull.
+# The image is built ON vm700 from the git SHA of HEAD, once, via
+# docker_image_build below; the docker_compose_v2 task still runs with
+# build: never, so compose itself can never trigger a second, uncontrolled
+# build — the same OOM history roles/ops-settings/tasks/omniroute.yaml's
+# header documents: an unbounded `docker compose build` on this host once
+# peaked at 13.4 GB RSS and took down RocketChat, LiteLLM and
+# music-production-engine.
+#
+# NOT applied by default: imot2026_enabled defaults to false
+# (defaults/main.yaml) because the nine imot2026-app services are not
+# functional yet (src/cli.ts implements only "scan" —
+# imotbgScraper2026/docs/spec/implementation-plan.md slices 8-12 are pending)
+# and because every enabled run does a host build. Enable deliberately:
+#   ansible-playbook -i protected/inventories/inventory-main.yaml \
+#     playbook-index.yaml -l ops --tags imot2026_stack -e imot2026_enabled=true
+
+- name: Define imot2026 paths
+  ansible.builtin.set_fact:
+    imot2026_stack_dir: /opt/imot2026
+    imot2026_mongo_data_dir: /var/lib/docker-data/imot2026-mongo
+  when: imot2026_enabled | bool
+
+- name: Ensure the imot2026 stack directory exists
+  # /opt is root:root 0755 on vm700 (verified 2026-08-22) — creating
+  # /opt/imot2026 under it needs an explicit owner, not an assumption that the
+  # directory already exists from some earlier out-of-band step.
+  ansible.builtin.file:
+    path: "{{ imot2026_stack_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: imot2026_enabled | bool
+
+- name: Ensure the imot2026 mongo data directory exists
+  ansible.builtin.file:
+    path: "{{ imot2026_mongo_data_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: imot2026_enabled | bool
+
+# --- host-only preconditions -------------------------------------------------
+# These can only be true on vm700 itself — no delegate_to, so they run on the
+# play's target host.
+
+- name: Reclaim dangling images and build cache before building
+  # Running containers untouched; only what nothing references any more.
+  ansible.builtin.shell: docker image prune -af --filter "until=24h" && docker builder prune -af
+  changed_when: false
+  when: imot2026_enabled | bool
+
+- name: Measure free space on the filesystem that actually holds image layers
+  # NOT `df /`. Docker 29's containerd snapshotter puts layers under
+  # /var/lib/containerd, and on vm700 that is a DIFFERENT disk than root:
+  # containerd is /dev/sdb (196G, ~100G free), / is /dev/sda2 (79G, ~64G
+  # free) — verified 2026-08-22. `df /` would silently answer for the wrong
+  # filesystem.
+  ansible.builtin.shell: df -Pk /var/lib/containerd | awk 'NR==2 {print int($4/1024/1024)}'
+  register: imot2026_images_free_gb
+  changed_when: false
+  when: imot2026_enabled | bool
+
+- name: Assert the image store can take a build
+  ansible.builtin.assert:
+    that: imot2026_images_free_gb.stdout | int >= imot2026_min_image_store_free_gb
+    fail_msg: >-
+      Only {{ imot2026_images_free_gb.stdout }} GB free on the filesystem
+      holding /var/lib/containerd (need {{ imot2026_min_image_store_free_gb }}).
+      Building imot2026-app here can otherwise fill it and take down
+      RocketChat, LiteLLM and music-production-engine alongside it.
+    success_msg: "{{ imot2026_images_free_gb.stdout }} GB free where image layers live (/var/lib/containerd)"
+  when: imot2026_enabled | bool
+
+- name: Measure free space on the root filesystem
+  ansible.builtin.shell: df -Pk / | awk 'NR==2 {print int($4/1024/1024)}'
+  register: imot2026_root_free_gb
+  changed_when: false
+  when: imot2026_enabled | bool
+
+- name: Assert the root filesystem has headroom
+  ansible.builtin.assert:
+    that: imot2026_root_free_gb.stdout | int >= imot2026_min_root_free_gb
+    fail_msg: "Only {{ imot2026_root_free_gb.stdout }} GB free on / (need {{ imot2026_min_root_free_gb }})"
+    success_msg: "{{ imot2026_root_free_gb.stdout }} GB free on /"
+  when: imot2026_enabled | bool
+
+- name: Measure free space where mongo data will be written
+  ansible.builtin.shell: df -Pk {{ imot2026_mongo_data_dir }} | awk 'NR==2 {print int($4/1024/1024)}'
+  register: imot2026_mongo_free_gb
+  changed_when: false
+  when: imot2026_enabled | bool
+
+- name: Assert room for mongo's data
+  ansible.builtin.assert:
+    that: imot2026_mongo_free_gb.stdout | int >= imot2026_min_mongo_free_gb
+    fail_msg: >-
+      Only {{ imot2026_mongo_free_gb.stdout }} GB free on the filesystem
+      holding {{ imot2026_mongo_data_dir }} (need {{ imot2026_min_mongo_free_gb }})
+    success_msg: "{{ imot2026_mongo_free_gb.stdout }} GB free on the filesystem holding {{ imot2026_mongo_data_dir }}"
+  when: imot2026_enabled | bool
+
+- name: Check whether the NAS library path is a real mount
+  # "exists" and "is mounted" are different facts under /mnt — the same check
+  # imotbgScraper2026/deploy/deploy.yaml runs for the same path. An unmounted
+  # directory here is local disk that accepts every write and silently loses
+  # it on the next reboot. This role does NOT create the mount — see
+  # docs/imot2026.md "What is deliberately not automated" — it only refuses
+  # to start a stack that would bind-mount local disk in its place.
+  ansible.builtin.command:
+    cmd: mountpoint {{ imot2026_library_host_path }}
+  register: imot2026_library_mountpoint
+  changed_when: false
+  failed_when: false
+  when: imot2026_enabled | bool
+
+- name: Assert the NAS library path is a real mount before anything binds it
+  ansible.builtin.assert:
+    that: imot2026_library_mountpoint.rc == 0
+    fail_msg: >-
+      {{ imot2026_library_host_path }} is not a mount point
+      ({{ imot2026_library_mountpoint.stdout | default(imot2026_library_mountpoint.stderr, true) }}).
+      Every imot2026-* service bind-mounts this path at /library; refusing to
+      start the stack against local disk standing in for the NAS export.
+      Mount it first (docs/imot2026.md "What is deliberately not automated")
+      or override imot2026_library_host_path.
+  when: imot2026_enabled | bool
+
+# --- build (never via compose) ------------------------------------------------
+
+- name: Determine the imotbgScraper2026 commit to build
+  # lookup() always runs on the controller regardless of this task's target
+  # host, so this reads the sibling checkout on the Mac — the same source
+  # imotbgScraper2026/deploy/deploy.yaml itself reads, for the same reason.
+  ansible.builtin.set_fact:
+    imot2026_git_sha: "{{ lookup('pipe', 'git -C ' + imot2026_repo_dir + ' rev-parse HEAD') }}"
+    imot2026_git_dirty: "{{ lookup('pipe', 'git -C ' + imot2026_repo_dir + ' status --porcelain') | trim }}"
+  when: imot2026_enabled | bool
+
+- name: Refuse to deploy a dirty imotbgScraper2026 working tree
+  # The image is synced from the working tree but tagged with the committed
+  # SHA below, so a dirty tree ships uncommitted code under a tag that does
+  # not describe it — the same rule imotbgScraper2026/deploy/deploy.yaml
+  # enforces for its own deploy path.
+  ansible.builtin.assert:
+    that: imot2026_git_dirty | length == 0
+    fail_msg: |
+      imotbgScraper2026 working tree is dirty. Commit or stash first:
+      {{ imot2026_git_dirty }}
+    success_msg: "imotbgScraper2026 working tree clean; {{ imot2026_git_sha }} is what will ship."
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: imot2026_enabled | bool
+
+- name: Sync the imotbgScraper2026 working tree to vm700
+  ansible.posix.synchronize:
+    src: "{{ imot2026_repo_dir }}/"
+    dest: "{{ imot2026_stack_dir }}/src-tree/"
+    delete: true
+    rsync_opts:
+      - "--exclude=.git"
+      - "--exclude=node_modules"
+      - "--exclude=coverage"
+      - "--exclude=work"
+      - "--exclude=protected" # imotbgScraper2026's own secrets tree — never rsynced
+  when: imot2026_enabled | bool
+
+- name: Build the imot2026-app image, tagged with the commit
+  community.docker.docker_image_build:
+    name: imot2026-app
+    tag: "{{ imot2026_git_sha }}"
+    path: "{{ imot2026_stack_dir }}/src-tree"
+    dockerfile: Dockerfile
+    args:
+      GIT_SHA: "{{ imot2026_git_sha }}"
+    rebuild: always
+  when: imot2026_enabled | bool
+
+# --- render + start -----------------------------------------------------------
+
+- name: Map Discord/email routing onto the shape imotbgScraper2026's env.j2 expects
+  # imotbgScraper2026/deploy/env.j2 reads imot2026_discord.webhook_url etc.
+  # from its own protected/config/*.yaml. That tree is a different repo's
+  # protected/ and is never read from here (see docs/imot2026.md). Real
+  # values belong in ansible-home-lab/protected/inventories/group_vars/
+  # all.yaml, referenced by name via the imot2026_discord_* / imot2026_email_*
+  # defaults; this task only reshapes them into the attribute names the
+  # template expects.
+  ansible.builtin.set_fact:
+    imot2026_discord:
+      webhook_url: "{{ imot2026_discord_webhook_url }}"
+      bot_token: "{{ imot2026_discord_bot_token }}"
+    imot2026_email:
+      provider: "{{ imot2026_email_provider }}"
+      api_key: "{{ imot2026_email_api_key }}"
+      from_address: "{{ imot2026_email_from_address }}"
+      from_name: "{{ imot2026_email_from_name }}"
+  no_log: true
+  when: imot2026_enabled | bool
+
+- name: Render docker-compose.yml from imotbgScraper2026's own template
+  # Source of truth stays in imotbgScraper2026/deploy/docker-compose.yml.j2 —
+  # see the header of this file for why a second copy is not kept here. Must
+  # be rendered before docker_compose_v2 reads it, same as caddy.yaml.
+  ansible.builtin.template:
+    src: "{{ imot2026_repo_dir }}/deploy/docker-compose.yml.j2"
+    dest: "{{ imot2026_stack_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  when: imot2026_enabled | bool
+
+- name: Render .env from imotbgScraper2026's own template
+  # Secrets only reach a container as environment variables, never logged.
+  ansible.builtin.template:
+    src: "{{ imot2026_repo_dir }}/deploy/env.j2"
+    dest: "{{ imot2026_stack_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: imot2026_enabled | bool
+
+- name: Start the imot2026 stack
+  # build: never — the image was already built, on this host, above. A
+  # compose-triggered build here would bypass every guard the tasks above ran.
+  community.docker.docker_compose_v2:
+    project_src: "{{ imot2026_stack_dir }}"
+    project_name: "{{ imot2026_project_name }}"
+    state: present
+    build: never
+    remove_orphans: true
+  when: imot2026_enabled | bool
+
+# --- health gate ---------------------------------------------------------------
+
+- name: Wait for mongo to report healthy
+  community.docker.docker_container_info:
+    name: imot2026-mongo
+  register: imot2026_mongo_info
+  until: imot2026_mongo_info.container.State.Health.Status == "healthy"
+  retries: 20
+  delay: 3
+  when: imot2026_enabled | bool
+
+- name: Initiate the replica set once
+  # Idempotent: rs.initiate() on an already-initiated set errors, and that
+  # error is the success case on every run after the first. Required because
+  # IMOT2026_MONGO_URI in docker-compose.yml.j2 hardcodes
+  # replicaSet=rs0&directConnection=true — without this, every app service
+  # fails to connect even once its subcommand exists.
+  ansible.builtin.shell: |
+    docker exec imot2026-mongo mongosh --quiet --eval '
+      try { rs.status().ok }
+      catch (e) { rs.initiate({_id:"rs0",members:[{_id:0,host:"imot2026-mongo:27017"}]}).ok }'
+  register: imot2026_rs_init
+  changed_when: false
+  retries: 6
+  delay: 5
+  until: imot2026_rs_init.rc == 0
+  when: imot2026_enabled | bool
+
+- name: Wait for kafka to report healthy
+  community.docker.docker_container_info:
+    name: imot2026-kafka
+  register: imot2026_kafka_info
+  until: imot2026_kafka_info.container.State.Health.Status == "healthy"
+  retries: 20
+  delay: 5
+  when: imot2026_enabled | bool
+
+- name: Confirm every service in the compose project is running
+  # There is no /health endpoint to assert a version against yet — src/cli.ts
+  # implements only "scan" (see the header of this file). Every imot2026-app
+  # service will therefore start, print its usage error, and exit non-zero;
+  # restart: unless-stopped means docker keeps retrying it. This proves only
+  # that the STACK came up as configured, the honest limit of what this task
+  # can assert today. Replace with a real health check once ops-api exists.
+  ansible.builtin.command: docker compose -p {{ imot2026_project_name }} ps --format json
+  args:
+    chdir: "{{ imot2026_stack_dir }}"
+  register: imot2026_ps
+  changed_when: false
+  when: imot2026_enabled | bool
+
+- name: Report stack readiness
+  ansible.builtin.debug:
+    msg: >-
+      imot2026 {{ imot2026_git_sha }} is deployed on vm700 (192.168.31.152).
+      mongo and kafka report healthy. The nine imot2026-app services are
+      running the built image; their subcommands are not implemented yet
+      (see docs/imot2026.md) so they will restart-loop until
+      implementation-plan.md slices 8-12 land in imotbgScraper2026 — that is
+      expected, not a deploy failure.
+  when: imot2026_enabled | bool

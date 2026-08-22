@@ -436,3 +436,77 @@ rocketchat_backup_keep: 10
 # retries*delay = 300s.
 rocketchat_health_retries: 30
 rocketchat_health_delay: 10
+
+# --- imot2026 (imotbgScraper2026 real-estate ingestion platform) -----------------
+#
+# Deploys MongoDB + Kafka + the nine imot2026-app services (one shared image,
+# built ON vm700) following the same house pattern as caddy.yaml and
+# omniroute.yaml: /opt/<name> stack dir, /var/lib/docker-data state, templated
+# compose + env, docker_compose_v2 (build: never), a health gate afterwards.
+# See roles/ops-settings/docs/imot2026.md.
+#
+# UNLIKE caddy/omniroute, the compose file and env template are NOT authored
+# in this repo. imotbgScraper2026/deploy/{docker-compose.yml.j2,env.j2} are
+# rendered directly from the sibling checkout (imot2026_repo_dir below) — the
+# same "one source, no copy" reasoning docker-compose.yml.j2 states about
+# itself ("Never edit the rendered file by hand ... a copy is what goes
+# stale"), and the same shape omniroute.yaml already uses in this role for a
+# compose file owned by another project (it checks out docker-compose.prod.yml
+# rather than re-authoring it).
+#
+# MASTER SWITCH: the nine imot2026-app services are not functional yet —
+# src/cli.ts implements only "scan" (imotbgScraper2026/docs/spec/
+# implementation-plan.md, slices 8-12 pending) — every other service starts,
+# prints a usage error and exits non-zero under restart: unless-stopped. Every
+# enabled run also does a docker image BUILD on vm700
+# (community.docker.docker_image_build, not docker_compose_v2, which stays
+# build: never — see docs/imot2026.md). Defaults to false so an unrelated
+# `make ops` never starts it or triggers a build.
+# Enable deliberately: --tags imot2026_stack -e imot2026_enabled=true
+imot2026_enabled: false
+
+# imotbgScraper2026 is a sibling checkout under the same monorepo root
+# (koeff-gitroot-main/imotbgScraper2026) — the same assumption
+# imotbgScraper2026/deploy/deploy.yaml itself makes about ../ansible-home-lab.
+# Override with -e if the two repos are ever checked out somewhere else
+# relative to one another.
+imot2026_repo_dir: "{{ playbook_dir }}/../imotbgScraper2026"
+
+# Host ports published by imotbgScraper2026/deploy/docker-compose.yml.j2.
+# Mongo is bound to 127.0.0.1 only there; ops-api is the one port meant to be
+# reached from outside vm700 once something fronts it.
+imot2026_mongo_host_port: "27019"
+imot2026_ops_api_host_port: "8790"
+
+# Where the NAS-backed library is expected to already be mounted on vm700.
+# imotbgScraper2026/deploy/deploy.yaml derives this from its OWN protected/
+# config/nfs.yaml — a different repo's protected/ tree, never read from here
+# (see docs/imot2026.md "What is deliberately not automated"). This default
+# matches deploy.yaml's own fallback; override with -e if the export's
+# mount_path differs. Not currently mounted on vm700 (verified 2026-08-22).
+imot2026_library_host_path: /mnt/nas/imot2026
+
+# Preconditions, asserted ON vm700 before a build or a bind mount is trusted.
+# Docker 29's containerd snapshotter puts image layers under
+# /var/lib/containerd, which is a DIFFERENT filesystem than / on vm700 today
+# (verified 2026-08-22: /var/lib/containerd is /dev/sdb, 196G/~100G free; / is
+# /dev/sda2, 79G/~64G free) — `df /` would silently check the wrong disk.
+imot2026_min_image_store_free_gb: 15
+imot2026_min_root_free_gb: 5
+imot2026_min_mongo_free_gb: 5
+
+# Discord/email routing (imotbgScraper2026/docs/spec/discord.md, email.md).
+# Optional: empty means the corresponding worker starts but cannot
+# publish/send, matching imotbgScraper2026's own behaviour. Real values
+# belong in ansible-home-lab/protected/inventories/group_vars/all.yaml,
+# referenced here BY NAME only — imotbgScraper2026's own protected/ tree is
+# never read from this repo.
+imot2026_discord_webhook_url: ""
+imot2026_discord_bot_token: ""
+imot2026_email_provider: ""
+imot2026_email_api_key: ""
+imot2026_email_from_address: ""
+imot2026_email_from_name: "imotbg alerts"
+
+# docker-compose project name.
+imot2026_project_name: imot2026

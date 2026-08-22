@@ -180,3 +180,8 @@
   tags:
     - rocketchat_stack
 
+- name: Import imot2026 stack setup
+  import_tasks: imot2026.yaml
+  tags:
+    - imot2026_stack
+

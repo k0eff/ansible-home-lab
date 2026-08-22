@@ -1,0 +1,37 @@
+{
+  "id": "020",
+  "branch": "main",
+  "name": "core--imot2026-stack",
+  "category": "core",
+  "description": "Ports imotbgScraper2026's standalone deploy/deploy.yaml into ansible-home-lab's ops-settings role, following the caddy.yaml house pattern (/opt stack dir, /var/lib/docker-data state, templated compose + env, docker_compose_v2 build: never, health gate) but rendering the compose/env templates directly from the sibling checkout instead of re-authoring them, to avoid a second copy that goes stale",
+  "implementation": {
+    "file": "roles/ops-settings/tasks/imot2026.yaml",
+    "change": "New task file (25 tasks) plus imot2026_* defaults in defaults/main.yaml and an import in tasks/main.yaml under tag imot2026_stack. No new templates were added in this repo: docker-compose.yml.j2 and env.j2 are rendered with ansible.builtin.template directly from imotbgScraper2026/deploy/ (imot2026_repo_dir = playbook_dir + '/../imotbgScraper2026'), matching how omniroute.yaml already checks out a compose file owned by another project rather than duplicating it. The image is built ON vm700 via community.docker.docker_image_build (there is no published image to pull); the docker_compose_v2 task itself stays build: never. imot2026_enabled defaults to false — authoring only, never run against vm700."
+  },
+  "validation": {
+    "type": "static_only",
+    "checks": [
+      "STATIC (done): ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml --syntax-check passes with the new tasks/main.yaml import in place",
+      "STATIC (done): ansible-playbook ... --list-tasks -l ops lists all 25 imot2026.yaml tasks under TAGS: [imot2026_stack], correctly nested under the ops-settings role and not tagged into any other stack",
+      "STATIC (done): rendered imotbgScraper2026/deploy/docker-compose.yml.j2 with jinja2.StrictUndefined and representative values for the only four variables it references (imot2026_git_sha, imot2026_library_host_path, imot2026_mongo_host_port, imot2026_ops_api_host_port); the output parses as valid YAML with the expected 9 imot2026-app services plus mongo and kafka, and no other Jinja variable is required",
+      "STATIC (done): rendered imotbgScraper2026/deploy/env.j2 the same way with imot2026_discord/imot2026_email dicts shaped as the role's own set_fact task builds them; produced valid KEY=VALUE lines with no unrendered {{ }} placeholder",
+      "STATIC (done): grep confirms no secret VALUE is present anywhere in the new/changed files — only variable names (imot2026_discord_webhook_url etc.), consistent with AGENTS.md",
+      "STATIC (done): imot2026_enabled defaults to false in defaults/main.yaml, so `make ops` / a default ansible-playbook run does not execute any imot2026 task, matching caddy_enabled's precedent (tags alone do not gate default execution in this codebase)",
+      "HOST FACT (verified via SSH read-only commands on vm700, 2026-08-22): /opt is root:root 0755 — confirms the directory-creation task needs become: true + explicit owner, and that /opt/imot2026 does not already exist out-of-band",
+      "HOST FACT (verified 2026-08-22): /var/lib/containerd is /dev/sdb (196G total, ~100G free); / is /dev/sda2 (79G total, ~64G free) — genuinely different filesystems, confirming the free-space precondition must check /var/lib/containerd specifically, not `df /`",
+      "HOST FACT (verified 2026-08-22): /var/lib/docker-data/imot2026-mongo does not yet exist; docker version 29.2.0, DockerRootDir /var/lib/docker",
+      "HOST FACT (verified 2026-08-22): /mnt/nas/imot2026 does not exist and is not a mount point — only /mnt/nas/mpe and /srv/mpe-library are mounted on vm700 today, both for music-production-engine. This means the NAS-mount assertion in imot2026.yaml would currently FAIL if imot2026_enabled were set true — confirmed as an accurate, currently-unmet precondition, not a hypothetical one",
+      "HOST FACT (verified 2026-08-22): ports 27019 and 8790 are not in ss -tln output on vm700 — free for this stack. Ports 80 and 443 ARE already listening (unrelated to this change; likely the Caddy stack from eval 017)",
+      "NOT RUN (hard rule — authoring only): ansible-playbook was never executed against vm700 with imot2026_stack; no directory, container, image, or file was created or changed on vm700 by this work",
+      "NOT RUN: idempotence, health gate behaviour, replica-set initiation, and the actual image build were none of them exercised — all PENDING a deploy that is explicitly out of scope for this task"
+    ]
+  },
+  "known_deltas": [
+    "Two deploy paths for the same stack now exist: imotbgScraper2026/deploy/deploy.yaml (standalone, become: false at play level, owner: ansible_user_id) and this role's imot2026.yaml (become: true inherited from playbook-index.yaml's ops play, owner: root — matching caddy.yaml/omniroute.yaml). Both create /opt/imot2026 correctly as of 2026-08-22; neither assumes the other has run first. Retiring one is a follow-up, not part of this port",
+    "The NAS mount (imotbgScraper2026's own protected/config/nfs.yaml host/export/options) is read by imotbgScraper2026/deploy/deploy.yaml but deliberately NOT reproduced in this role, because that config lives in a different repo's protected/ tree. This role only asserts the mountpoint exists; it does not create it. Until something mounts /mnt/nas/imot2026 on vm700, enabling imot2026_enabled will fail at that assertion by design",
+    "The uid-10001 NFS write probe from imotbgScraper2026/deploy/deploy.yaml is not reproduced here for the same reason — it is meaningless without the mount, and depends on export options this repo does not read",
+    "scripts/verify_vm700.sh's port sweep was not extended with 27019/8790, since the stack is off by default and not yet part of steady-state verification"
+  ],
+  "status": "pending",
+  "validated_on": "Controller only (this Mac) and read-only SSH facts from vm700 (192.168.31.152). No task in imot2026.yaml has been executed with imot2026_enabled=true. status is 'pending' rather than 'pass' because the deploy-time checks above (idempotence, build, health gate, actual NAS mount) are all unexercised by design — this task was authoring-only."
+}
