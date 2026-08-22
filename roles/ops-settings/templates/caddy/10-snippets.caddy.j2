@@ -60,6 +60,21 @@
 	reverse_proxy {{ caddy_backend_host }}:{{ caddy_omniroute_port }}
 }
 
+# imot.koeff.com - imot2026, the Bulgarian real-estate alert service
+# (imotbgScraper2026). One Bun service serving four surfaces off one port:
+# the public site, the client feed, the magic-link auth flow and the admin
+# panel. All four authenticate themselves — the feed and admin behind
+# sessions, admin additionally behind a role check — so unlike the loopback
+# binding this replaced, exposure here is not exposure of an open panel.
+#
+# No rate limiting here, same as musicengine and omniroute: the app enforces
+# its own limit on the one endpoint that needs it (LoginRateLimiter, on
+# POST /auth/login), which is the endpoint an attacker would actually
+# hammer, and it limits per-IP and per-address rather than per-connection.
+(imot_proxy) {
+	reverse_proxy {{ caddy_backend_host }}:{{ caddy_imot_port }}
+}
+
 # share.koeff.com - QNAP Qumagie file share via nginx sidecar with CSP injection
 # The sidecar's sub_filter chain, CSP add_header, and OpenGraph injection are
 # preserved exactly as in the cluster ConfigMap (files/caddy/nginx/share-prod-proxy.conf).

@@ -30,10 +30,12 @@
 # music-production-engine.
 #
 # NOT applied by default: imot2026_enabled defaults to false
-# (defaults/main.yaml) because the nine imot2026-app services are not
-# functional yet (src/cli.ts implements only "scan" —
-# imotbgScraper2026/docs/spec/implementation-plan.md slices 8-12 are pending)
-# and because every enabled run does a host build. Enable deliberately:
+# (defaults/main.yaml) because every enabled run does a host build. The other
+# half of that sentence — "the services are not functional yet, src/cli.ts
+# implements only scan" — was corrected 2026-08-23: compose does not invoke
+# src/cli.ts at all, it runs `bun run src/main.ts <name>`, and
+# src/services/registry.ts registers every service the compose file names.
+# Enable deliberately:
 #   ansible-playbook -i protected/inventories/inventory-main.yaml \
 #     playbook-index.yaml -l ops --tags imot2026_stack -e imot2026_enabled=true
 
@@ -190,6 +192,10 @@
       - "--exclude=coverage"
       - "--exclude=work"
       - "--exclude=protected" # imotbgScraper2026's own secrets tree — never rsynced
+      # Agent worktrees. Each is a full checkout of the same repo, so a
+      # session with fifteen of them open would rsync the tree sixteen times
+      # and build an image containing fifteen stale copies of itself.
+      - "--exclude=.claude"
   when: imot2026_enabled | bool
 
 - name: Build the imot2026-app image, tagged with the commit

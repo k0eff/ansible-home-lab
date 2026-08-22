@@ -22,6 +22,12 @@
 	import omniroute_proxy
 }
 
+# imot.koeff.com - imot2026 real-estate alerts
+{{ caddy_host_imot }} {
+	import access_log
+	import imot_proxy
+}
+
 # --- :80 and :443 (chat, n8n, overseerr, share, shareurl) ---
 
 # chat.koeff.com - RocketChat with WebSocket support
@@ -32,6 +38,15 @@
 http://{{ caddy_host_chat }} {
 	import access_log
 	import chat_proxy
+}
+
+# imot.koeff.com on :80 — served identically to :443 by importing the same
+# snippet, the structural guarantee this file's header describes. Caddy's
+# own redirect to https is disabled globally (auto_https disable_redirects),
+# so without this block plain HTTP would simply not answer.
+http://{{ caddy_host_imot }} {
+	import access_log
+	import imot_proxy
 }
 
 # n8n.koeff.com - n8n automation platform with WebSocket

@@ -190,6 +190,10 @@ caddy_overseerr_backend: 192.168.31.144:5055
 # 8080 but Endpoints says 6666).
 caddy_rocketchat_port: 6666
 caddy_musicengine_port: 8770
+# imot2026's web service. Published by its own compose on vm700's LAN
+# address (imotbgScraper2026/deploy/docker-compose.yml.j2's
+# imot2026_web_bind_host) so Caddy can reach it here.
+caddy_imot_port: 8790
 caddy_omniroute_port: 20130
 caddy_grafana_port: 3000
 caddy_prometheus_port: 9090
@@ -204,6 +208,7 @@ caddy_host_chat: chat.koeff.com
 caddy_host_n8n: n8n.koeff.com
 caddy_host_overseerr: overseerr.koeff.com
 caddy_host_musicengine: musicengine.koeff.com
+caddy_host_imot: imot.koeff.com
 caddy_host_omniroute: omniroute.koeff.com
 caddy_host_share: share.koeff.com
 caddy_host_shareurl: shareurl.koeff.com
@@ -454,11 +459,18 @@ rocketchat_health_delay: 10
 # compose file owned by another project (it checks out docker-compose.prod.yml
 # rather than re-authoring it).
 #
-# MASTER SWITCH: the nine imot2026-app services are not functional yet —
-# src/cli.ts implements only "scan" (imotbgScraper2026/docs/spec/
-# implementation-plan.md, slices 8-12 pending) — every other service starts,
-# prints a usage error and exits non-zero under restart: unless-stopped. Every
-# enabled run also does a docker image BUILD on vm700
+# MASTER SWITCH. The claim that used to stand here — "the nine imot2026-app
+# services are not functional yet, src/cli.ts implements only scan" — was
+# read against the wrong entry point and is no longer true either way. The
+# services do not run through src/cli.ts at all; compose runs
+# `bun run src/main.ts <name>`, and src/services/registry.ts registers all of
+# them: scheduler, scanner, indexer, reviewer, notifier, email-worker,
+# discord-worker, removed-detector, media-worker and web. Corrected
+# 2026-08-23 rather than quietly deleted, because the next person to read
+# "not functional yet" would have believed it and left the switch off.
+#
+# It still defaults to false, for the reason that genuinely survives: every
+# enabled run does a docker image BUILD on vm700
 # (community.docker.docker_image_build, not docker_compose_v2, which stays
 # build: never — see docs/imot2026.md). Defaults to false so an unrelated
 # `make ops` never starts it or triggers a build.
@@ -473,10 +485,29 @@ imot2026_enabled: false
 imot2026_repo_dir: "{{ playbook_dir }}/../imotbgScraper2026"
 
 # Host ports published by imotbgScraper2026/deploy/docker-compose.yml.j2.
-# Mongo is bound to 127.0.0.1 only there; ops-api is the one port meant to be
-# reached from outside vm700 once something fronts it.
+# Mongo is bound to 127.0.0.1 only there; the web service is the one port
+# meant to be reached from outside vm700, and as of 2026-08-23 something
+# does front it — the imot.koeff.com site block above.
+#
+# The web variable was `imot2026_ops_api_host_port` here until 2026-08-23.
+# imotbgScraper2026 renamed ops-api to web and its template now reads
+# `imot2026_web_host_port`; this repo was never taught the new name, so a
+# render from here would have produced a compose file with an empty port
+# binding. Renamed, and the value is unchanged.
 imot2026_mongo_host_port: "27019"
-imot2026_ops_api_host_port: "8790"
+imot2026_web_host_port: "8790"
+
+# Which interface the web port is published on. Caddy runs in its own
+# container and reaches every backend on this host at caddy_backend_host
+# (192.168.31.152), so a loopback bind would be unreachable from the edge —
+# that was the whole integration gap. vm700's own LAN address, derived
+# rather than copied, and deliberately not 0.0.0.0.
+imot2026_web_bind_host: "{{ ansible_default_ipv4.address }}"
+
+# The public origin, and what every magic-link login email points back at.
+# Must match caddy_host_imot above; if the two ever disagree, subscribers
+# get login links to a host that does not terminate TLS for this service.
+imot2026_web_base_url: "https://{{ caddy_host_imot }}"
 
 # Where the NAS-backed library is expected to already be mounted on vm700.
 # imotbgScraper2026/deploy/deploy.yaml derives this from its OWN protected/
