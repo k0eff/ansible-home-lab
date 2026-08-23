@@ -11,14 +11,13 @@
   "validation": {
     "type": "live",
     "checks": [
-      "MEASURED (done): a fresh container on vm700 reported `ulimit -n` of 1024 before the change",
-      "MEASURED (done): default-ulimits is NOT applied by SIGHUP — daemon.json written, `systemctl reload docker` issued, a fresh container still reported 1024. Docker 29.2.0. This is why the task restarts rather than reloads",
-      "MEASURED (done): `docker run --rm --ulimit nofile=64000:64000 mongo:8 sh -c 'ulimit -n'` reports 64000, confirming the value is accepted",
-      "STATIC (done): ansible-playbook --syntax-check passes with the new import",
-      "PENDING (needs an accepted outage window): with -e docker_daemon_restart=true, a fresh container reports 64000 and the play's own assert confirms it",
-      "PENDING: after that restart, `docker info --format '{{.LiveRestoreEnabled}}'` reports true, so later daemon restarts leave containers running",
-      "PENDING: already-running containers keep their old limit by design — mpe-mongo and rc-mongo need recreating by their own stacks' deploys before they see 64000"
+      "MEASURED: a fresh container reported ulimit -n of 1024 before the change",
+      "MEASURED: default-ulimits is NOT applied by SIGHUP — daemon.json written, `systemctl reload docker` issued, a fresh container still reported 1024 (Docker 29.2.0). This is why the task restarts rather than reloads",
+      "MEASURED: after the daemon restart a fresh container reports 64000, and `docker info` reports LiveRestoreEnabled=true — so this was the last daemon restart that stops containers",
+      "MEASURED: all 21 containers came back; chat.koeff.com answered 200 and musicengine.koeff.com 303 afterwards",
+      "MEASURED: the imot2026 stack was then deployed onto the raised default and its mongod has not segfaulted since — the failure that motivated this change",
+      "KNOWN LIMIT: a restart applies the new default only to containers created afterwards. mpe-mongo and rc-mongo were recreated by the restart and so did pick it up; any container started before it and never recreated would not have."
     ]
   },
-  "status": "pending"
+  "status": "pass"
 }
