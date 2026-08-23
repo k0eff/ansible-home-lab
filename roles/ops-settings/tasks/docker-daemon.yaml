@@ -1,0 +1,132 @@
+---
+# /etc/docker/daemon.json on the ops host.
+#
+# Two settings, and the first one is why this file exists.
+#
+# --- nofile ------------------------------------------------------------------
+#
+# Docker's default file-descriptor limit for a container is 1024. MongoDB's own
+# production checklist asks for at least 64000, and the gap is not a slow
+# degradation — mongod hits the ceiling, throws TooManyFilesOpen from a path
+# that must not throw, and terminate() takes the process down with SIGSEGV.
+#
+# That is not hypothetical here. imotbgScraper2026's test suite spent weeks
+# failing two or three integration tests per run with exit 139, "Invalid access
+# at address: 0", si_code 128 — which reads as memory corruption and was blamed
+# in turn on a shared database, on agent contention, on the memory cap, and on
+# index rebuilds. Every one of those was wrong. Two lines above the signal, in
+# mongod's own log, every time:
+#
+#   couldn't open [/proc/1/stat] Too many open files
+#   Unable to create eventfd object ... TooManyFilesOpen, errno: 24
+#
+# Both of that project's own container definitions now set the limit explicitly
+# (scripts/remote-test.sh's --ulimit, docker-compose.yml.j2's ulimits: block),
+# so imot2026 is already covered without this file. What this file fixes is the
+# DEFAULT — every other stack on this host, and every future one, whose author
+# will not know to set the flag. mpe-mongo and rc-mongo are both running on
+# 1024 right now.
+#
+# --- live-restore ------------------------------------------------------------
+#
+# Bundled deliberately, because it changes what a future daemon restart costs.
+# Without it, restarting dockerd stops every container on the host: the Caddy
+# edge that serves the public domains, RocketChat, LiteLLM, the AI stack,
+# music-production-engine. With it, containers keep running across a daemon
+# restart. Enabling it requires one restart, so the disruption is paid once and
+# never again — which is the whole argument for doing both in the same change.
+#
+# --- why the restart is not automatic ----------------------------------------
+#
+# `default-ulimits` is NOT applied by SIGHUP. Measured on vm700 2026-08-23 with
+# Docker 29.2.0: writing the file and running `systemctl reload docker` left a
+# fresh container still reporting `ulimit -n` of 1024. Only a full daemon
+# restart applies it.
+#
+# So this file writes the config and STOPS. docker_daemon_restart defaults to
+# false, the same shape as caddy_enabled and imot2026_enabled: a task that
+# interrupts every public service on the host is an explicit decision with a
+# chosen moment, not a side effect of an unrelated `make ops`.
+#
+#   ansible-playbook ... --tags docker_daemon -e docker_daemon_restart=true
+#
+# NOTE, and it matters for planning: a restart applies the new default only to
+# containers created AFTERWARDS. Already-running containers keep the limit they
+# were started with, so mpe-mongo and rc-mongo need recreating (their own
+# stack's deploy does that) before they see 64000.
+
+- name: Ensure /etc/docker exists
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Write the Docker daemon configuration
+  # Templated from a dict rather than a heredoc so a future setting is added to
+  # the variable, not to a wall of literal JSON that has to be kept parseable
+  # by hand. `validate` refuses to install a file that is not valid JSON at
+  # all: dockerd fails to START on a malformed daemon.json, which on this host
+  # would mean every container down and no obvious cause.
+  ansible.builtin.copy:
+    content: "{{ docker_daemon_config | to_nice_json }}\n"
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "python3 -c \"import json,sys; json.load(open(sys.argv[1]))\" %s"
+    backup: true
+  become: true
+  register: docker_daemon_written
+
+- name: Read the file-descriptor limit a NEW container currently gets
+  # The honest check. `docker info` reports the daemon's own limits, not what a
+  # container inherits, so this starts a throwaway container and asks it — the
+  # same reasoning as the NAS probe writing a FILE rather than chowning a
+  # directory.
+  ansible.builtin.command: docker run --rm alpine sh -c 'ulimit -n'
+  register: docker_nofile_now
+  changed_when: false
+
+- name: Restart the Docker daemon so the new defaults take effect
+  # Gated. This stops every container on the host — see the header.
+  ansible.builtin.systemd_service:
+    name: docker
+    state: restarted
+  become: true
+  when:
+    - docker_daemon_restart | bool
+    - docker_nofile_now.stdout | int < docker_daemon_min_nofile
+
+- name: Confirm a new container now gets the raised limit
+  ansible.builtin.command: docker run --rm alpine sh -c 'ulimit -n'
+  register: docker_nofile_after
+  changed_when: false
+  when: docker_daemon_restart | bool
+
+- name: Assert the restart actually raised it
+  ansible.builtin.assert:
+    that: docker_nofile_after.stdout | int >= docker_daemon_min_nofile
+    fail_msg: >-
+      A new container still reports nofile={{ docker_nofile_after.stdout }}
+      after the daemon restart (need {{ docker_daemon_min_nofile }}). The
+      config was written but is not in effect — check
+      `journalctl -u docker --since -2min` for a daemon.json parse error.
+    success_msg: "A new container now gets nofile={{ docker_nofile_after.stdout }}"
+  when: docker_daemon_restart | bool
+
+- name: Say plainly that a restart is still pending
+  ansible.builtin.debug:
+    msg: >-
+      /etc/docker/daemon.json is written, but a new container still gets
+      nofile={{ docker_nofile_now.stdout }}. `default-ulimits` is not applied
+      by SIGHUP — only a full daemon restart applies it, and that stops every
+      container on this host including the Caddy edge. Re-run with
+      -e docker_daemon_restart=true when a brief outage is acceptable.
+      Already-running containers keep their old limit either way and must be
+      recreated to pick up the new one.
+  when:
+    - not (docker_daemon_restart | bool)
+    - docker_nofile_now.stdout | int < docker_daemon_min_nofile

@@ -1,0 +1,24 @@
+{
+  "id": "021",
+  "branch": "main",
+  "name": "core--imot-koeff-com-public",
+  "category": "core",
+  "description": "Publishes imot2026's web service at imot.koeff.com through the Caddy edge, and closes the integration gap that made that impossible: the service bound its port to loopback while Caddy reaches every vm700 backend at caddy_backend_host (192.168.31.152). Also corrects two stale facts in this repo that would each have cost an hour of wrong diagnosis — a variable rename that never propagated, and a master-switch comment claiming the services do not work.",
+  "implementation": {
+    "file": "roles/ops-settings/templates/caddy/20-public.caddy.j2",
+    "change": "New imot_proxy snippet in 10-snippets.caddy.j2 reaching caddy_backend_host:caddy_imot_port; :443 and :80 site blocks for caddy_host_imot in 20-public.caddy.j2, both importing the same snippet per that file's structural guarantee; caddy_host_imot and caddy_imot_port defaults. In defaults/main.yaml, imot2026_ops_api_host_port renamed to imot2026_web_host_port (imotbgScraper2026's template has read the new name since its ops-api->web rename; a render from this repo would have emitted an empty port binding), plus new imot2026_web_bind_host (ansible_default_ipv4.address, not 0.0.0.0) and imot2026_web_base_url (https://{{ caddy_host_imot }}). The master-switch comment claiming 'the services are not functional yet, src/cli.ts implements only scan' was corrected in place: compose runs `bun run src/main.ts <name>` and src/services/registry.ts registers all ten services. tasks/imot2026.yaml gains an rsync --exclude=.claude so agent worktrees are not shipped into the image."
+  },
+  "validation": {
+    "type": "live",
+    "checks": [
+      "PENDING: ansible-playbook --syntax-check passes",
+      "PENDING: --list-tasks shows the imot2026_stack tag unchanged",
+      "PENDING: the imot2026 stack deploys to vm700 with imot2026_enabled=true; mongo and kafka report healthy and the replica set initiates",
+      "PENDING: imot2026-web is listening on the host's LAN address at 8790, reachable from Caddy's network namespace (not merely from vm700's loopback)",
+      "PENDING: https://imot.koeff.com answers with the public landing page over a valid certificate",
+      "PENDING: http://imot.koeff.com answers too, since auto_https disable_redirects means the :80 block is what makes plain HTTP work at all",
+      "PENDING: the rendered compose file's IMOT2026_WEB_BASE_URL is https://imot.koeff.com and not a loopback placeholder"
+    ]
+  },
+  "status": "pending"
+}

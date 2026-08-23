@@ -1,0 +1,24 @@
+{
+  "id": "022",
+  "branch": "main",
+  "name": "core--docker-daemon-nofile",
+  "category": "core",
+  "description": "Raises the ops host's Docker default file-descriptor limit from 1024 to 64000 via /etc/docker/daemon.json, and bundles live-restore so that this is the last daemon restart that stops containers. Docker's 1024 default is below MongoDB's required 64000, and below it mongod does not degrade — it throws TooManyFilesOpen from a noexcept path and terminate() kills it with SIGSEGV, which presents as memory corruption and was misdiagnosed four times in imotbgScraper2026's test suite.",
+  "implementation": {
+    "file": "roles/ops-settings/tasks/docker-daemon.yaml",
+    "change": "New task file imported from tasks/main.yaml under tag docker_daemon, plus docker_daemon_config / docker_daemon_min_nofile / docker_daemon_restart in defaults/main.yaml. The config is rendered from a dict with to_nice_json and installed with a JSON validate hook, because dockerd refuses to START on a malformed daemon.json — which on this host means every container down with no obvious cause. The restart is gated behind docker_daemon_restart (default false), the same shape as caddy_enabled and imot2026_enabled: it stops the Caddy public edge, RocketChat, LiteLLM, the AI stack and music-production-engine, so it is an explicit decision with a chosen moment. When the flag is off the play prints what is still pending rather than silently leaving inert config."
+  },
+  "validation": {
+    "type": "live",
+    "checks": [
+      "MEASURED (done): a fresh container on vm700 reported `ulimit -n` of 1024 before the change",
+      "MEASURED (done): default-ulimits is NOT applied by SIGHUP — daemon.json written, `systemctl reload docker` issued, a fresh container still reported 1024. Docker 29.2.0. This is why the task restarts rather than reloads",
+      "MEASURED (done): `docker run --rm --ulimit nofile=64000:64000 mongo:8 sh -c 'ulimit -n'` reports 64000, confirming the value is accepted",
+      "STATIC (done): ansible-playbook --syntax-check passes with the new import",
+      "PENDING (needs an accepted outage window): with -e docker_daemon_restart=true, a fresh container reports 64000 and the play's own assert confirms it",
+      "PENDING: after that restart, `docker info --format '{{.LiveRestoreEnabled}}'` reports true, so later daemon restarts leave containers running",
+      "PENDING: already-running containers keep their old limit by design — mpe-mongo and rc-mongo need recreating by their own stacks' deploys before they see 64000"
+    ]
+  },
+  "status": "pending"
+}

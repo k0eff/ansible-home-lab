@@ -541,3 +541,31 @@ imot2026_email_from_name: "imotbg alerts"
 
 # docker-compose project name.
 imot2026_project_name: imot2026
+
+# --- Docker daemon (/etc/docker/daemon.json) ---------------------------------
+#
+# nofile: docker defaults a container to 1024 file descriptors; MongoDB asks
+# for at least 64000, and below that mongod does not degrade, it SIGSEGVs (see
+# roles/ops-settings/tasks/docker-daemon.yaml for the full diagnosis).
+#
+# live-restore: containers keep running across a daemon restart. Enabling it
+# costs one restart and makes every later one free, which is why it is bundled
+# with the nofile change rather than deferred.
+docker_daemon_config:
+  default-ulimits:
+    nofile:
+      Name: nofile
+      Soft: 64000
+      Hard: 64000
+  live-restore: true
+
+docker_daemon_min_nofile: 64000
+
+# Restarting dockerd stops every container on this host — the Caddy edge
+# serving the public domains, RocketChat, LiteLLM, the AI stack,
+# music-production-engine. Same shape as caddy_enabled and imot2026_enabled:
+# an explicit decision with a chosen moment, never a side effect of an
+# unrelated `make ops`. `default-ulimits` is not SIGHUP-reloadable (measured,
+# Docker 29.2.0), so without this the config sits written and inert.
+#   --tags docker_daemon -e docker_daemon_restart=true
+docker_daemon_restart: false

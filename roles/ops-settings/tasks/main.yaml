@@ -14,6 +14,13 @@
 - name: Configure Docker Storage
   import_tasks: storage-docker.yaml
 
+- name: Configure the Docker daemon
+  # Writes /etc/docker/daemon.json. Safe on every run: the RESTART that makes
+  # it take effect is gated behind docker_daemon_restart (default false),
+  # because it stops every container on this host.
+  import_tasks: docker-daemon.yaml
+  tags: [docker_daemon]
+
 - git_config:
     name: core.autocrlf
     scope: global
