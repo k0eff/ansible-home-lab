@@ -532,6 +532,15 @@ imot2026_min_mongo_free_gb: 5
 # belong in ansible-home-lab/protected/inventories/group_vars/all.yaml,
 # referenced here BY NAME only — imotbgScraper2026's own protected/ tree is
 # never read from this repo.
+# Both fall back, in imot2026's own code, to a constant committed in that
+# repository — fine for local work, a silent hole in production. The app
+# refuses to boot when IMOT2026_ENV=production and either is unset or still
+# the default. Real values live in protected/inventories/group_vars/all.yaml.
+# Neither is rotatable: the first keys every listing url ever shared, the
+# second signs every unsubscribe link already emailed.
+imot2026_public_id_secret: ""
+imot2026_unsubscribe_secret: ""
+
 imot2026_discord_webhook_url: ""
 imot2026_discord_bot_token: ""
 imot2026_email_provider: ""
