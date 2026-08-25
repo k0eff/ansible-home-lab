@@ -1,0 +1,13 @@
+#!/bin/sh
+# Daily incremental + admin rebuild (80 §4.4). Cron wraps this in a
+# non-blocking flock on {{ bg_laws_root }}/var/run.lock. `admin build` runs
+# even when the incremental exits non-zero, so the dashboard always shows
+# the latest truth. Exit codes 2 (flags written) and 3 (budget reached,
+# checkpointed) are normal steady state (§4.5) — swallowed so cron only
+# mails on real failures (1/4/5/6).
+set -a; . {{ bg_laws_root }}/env; set +a
+cd {{ bg_laws_root }}/pipeline
+bun run src/cli/main.ts run incremental --data-repo {{ bg_laws_root }}/data --live
+rc=$?
+bun run src/cli/main.ts admin build --data-repo {{ bg_laws_root }}/data
+case $rc in 0|2|3) exit 0;; *) exit $rc;; esac

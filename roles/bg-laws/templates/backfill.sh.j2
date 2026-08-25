@@ -1,0 +1,9 @@
+#!/bin/sh
+# Operator-started, once, inside tmux (80 §4.4) — use start-backfill.sh.
+# Blocking flock: shares {{ bg_laws_root }}/var/run.lock with incremental.sh
+# so the two runners never overlap; the backfill waits its turn.
+set -a; . {{ bg_laws_root }}/env; set +a
+cd {{ bg_laws_root }}/pipeline
+exec flock {{ bg_laws_root }}/var/run.lock \
+  bun run src/cli/main.ts run backfill --data-repo {{ bg_laws_root }}/data \
+  --live --max-requests 100000 >> {{ bg_laws_root }}/logs/backfill.log 2>&1

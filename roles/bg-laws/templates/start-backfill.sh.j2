@@ -1,0 +1,11 @@
+#!/bin/sh
+# Convenience launcher: the one-shot historical backfill in a detached tmux
+# session (80 §4.4 — a tmux session, not a cron job or systemd unit).
+# Run as {{ bg_laws_user }}:  sudo -u {{ bg_laws_user }} {{ bg_laws_root }}/start-backfill.sh
+if tmux has-session -t bg-laws 2>/dev/null; then
+  echo "tmux session 'bg-laws' already exists — backfill already running?" >&2
+  echo "Inspect with: sudo -u {{ bg_laws_user }} tmux attach -t bg-laws" >&2
+  exit 1
+fi
+tmux new-session -d -s bg-laws '{{ bg_laws_root }}/backfill.sh'
+echo "backfill started in tmux session 'bg-laws'; log: {{ bg_laws_root }}/logs/backfill.log"

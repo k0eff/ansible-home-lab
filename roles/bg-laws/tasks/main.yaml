@@ -1,0 +1,250 @@
+---
+# bg-laws pipeline runtime on vm700. Contract: bg-laws-pipeline/docs/spec/
+# 80-queue-worker-admin.md §4 — the role is written from that section alone.
+# The backfill is deliberately NOT started here (PRD 4.6: operator-started,
+# once, inside tmux). This role only lays the ground: user, bun, clones,
+# env, wrappers, cron, logrotate. Static serving of var/admin (§3.4/§4.7
+# item 7) is NOT wired yet — it needs a caddy edge change, tracked
+# separately; admin build still writes the files.
+
+# --- account (§4.1) ----------------------------------------------------------
+
+- name: Create the bg-laws service user
+  ansible.builtin.user:
+    name: "{{ bg_laws_user }}"
+    shell: /bin/bash
+    create_home: true
+    state: present
+
+- name: Ensure the bg-laws user's .ssh directory
+  ansible.builtin.file:
+    path: "/home/{{ bg_laws_user }}/.ssh"
+    state: directory
+    owner: "{{ bg_laws_user }}"
+    group: "{{ bg_laws_user }}"
+    mode: "0700"
+
+- name: Authorize the operator laptop's key (worker rsync + operator ssh)
+  ansible.posix.authorized_key:
+    user: "{{ bg_laws_user }}"
+    state: present
+    key: "{{ lookup('file', '../../../protected/keys/main/homelab-main.key.pub') }}"
+
+- name: Install the github deploy key for the bg-laws clones
+  # Same key + convention roles/ops-settings/tasks/main.yaml uses for
+  # helmfile-home-lab. The value lives only in the protected repo.
+  ansible.builtin.copy:
+    dest: "/home/{{ bg_laws_user }}/.ssh/homelab-docker.key"
+    src: "../../../protected/keys/docker/homelab-docker.key"
+    owner: "{{ bg_laws_user }}"
+    group: "{{ bg_laws_user }}"
+    mode: "0400"
+
+# --- binaries (§4.1) ---------------------------------------------------------
+
+- name: Install prerequisite packages
+  ansible.builtin.apt:
+    pkg:
+      - git
+      - tmux
+      - rsync
+      - unzip
+      - logrotate
+      - util-linux   # flock
+      - coreutils    # timeout
+    state: present
+    update_cache: true
+
+- name: Check whether bun is already installed at the pinned version
+  ansible.builtin.command: /usr/local/bin/bun --version
+  register: bg_laws_bun_current
+  changed_when: false
+  failed_when: false
+
+- name: Download and install bun {{ bg_laws_bun_version }} (official linux-x64 zip)
+  when: bg_laws_bun_current.rc != 0 or bg_laws_bun_current.stdout | trim != bg_laws_bun_version
+  block:
+    - name: Download the bun release archive
+      ansible.builtin.get_url:
+        url: "https://github.com/oven-sh/bun/releases/download/bun-v{{ bg_laws_bun_version }}/bun-linux-x64.zip"
+        dest: /tmp/bun-linux-x64.zip
+        mode: "0644"
+
+    - name: Unpack the bun archive
+      ansible.builtin.unarchive:
+        src: /tmp/bun-linux-x64.zip
+        dest: /tmp
+        remote_src: true
+
+    - name: Install the bun binary to /usr/local/bin
+      ansible.builtin.copy:
+        src: /tmp/bun-linux-x64/bun
+        dest: /usr/local/bin/bun
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Clean up the bun download
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/bun-linux-x64.zip
+        - /tmp/bun-linux-x64
+
+# --- layout (§4.2) -----------------------------------------------------------
+
+- name: Ensure the bg-laws directory layout
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ bg_laws_user }}"
+    group: "{{ bg_laws_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ bg_laws_root }}", mode: "0755" }
+    - { path: "{{ bg_laws_root }}/logs", mode: "0755" }
+    - { path: "{{ bg_laws_root }}/var", mode: "0755" }
+    # Queue layout of §1.4 plus the admin output dir (§3) — created here so
+    # the very first runner/worker/rsync touch never races a mkdir.
+    - { path: "{{ bg_laws_root }}/var/queue", mode: "0755" }
+    - { path: "{{ bg_laws_root }}/var/queue/pending", mode: "0755" }
+    - { path: "{{ bg_laws_root }}/var/queue/leases", mode: "0755" }
+    - { path: "{{ bg_laws_root }}/var/queue/done", mode: "0755" }
+    - { path: "{{ bg_laws_root }}/var/queue/failed", mode: "0755" }
+    - { path: "{{ bg_laws_root }}/var/admin", mode: "0755" }
+
+- name: Clone bg-laws-pipeline (first run only)
+  # update: no — the spec's idempotency rule (§4.7) is "git fetch only,
+  # never reset": the git module's update path can hard-reset a tree, and
+  # the runner owns these trees. Updates happen in the guarded task below.
+  ansible.builtin.git:
+    repo: "{{ bg_laws_pipeline_repo }}"
+    dest: "{{ bg_laws_root }}/pipeline"
+    version: main
+    key_file: "/home/{{ bg_laws_user }}/.ssh/homelab-docker.key"
+    accept_newhostkey: true
+    update: false
+  become: true
+  become_user: "{{ bg_laws_user }}"
+
+- name: Clone the bg-laws data repo (first run only; main + meta arrive with the clone)
+  ansible.builtin.git:
+    repo: "{{ bg_laws_data_repo }}"
+    dest: "{{ bg_laws_root }}/data"
+    version: main
+    key_file: "/home/{{ bg_laws_user }}/.ssh/homelab-docker.key"
+    accept_newhostkey: true
+    update: false
+  become: true
+  become_user: "{{ bg_laws_user }}"
+
+- name: Update the pipeline tree (fetch + ff-only, under the run lock)
+  # flock -n: if the backfill or the daily incremental holds the lock, skip
+  # rather than swap the code out from under a running process. ff-only is
+  # not a reset — local commits or divergence make this a loud no-op.
+  ansible.builtin.shell: |
+    flock -n {{ bg_laws_root }}/var/run.lock -c '
+      cd {{ bg_laws_root }}/pipeline &&
+      GIT_SSH_COMMAND="ssh -i /home/{{ bg_laws_user }}/.ssh/homelab-docker.key -o IdentitiesOnly=yes" git fetch origin &&
+      git merge --ff-only origin/main' \
+    || echo LOCK_BUSY_OR_DIVERGED
+  register: bg_laws_pipeline_update
+  changed_when: "'Updating' in bg_laws_pipeline_update.stdout"
+  become: true
+  become_user: "{{ bg_laws_user }}"
+
+- name: Fetch the data repo (fetch ONLY — the runner owns this tree, §4.7)
+  ansible.builtin.command:
+    cmd: git fetch origin
+    chdir: "{{ bg_laws_root }}/data"
+  environment:
+    GIT_SSH_COMMAND: "ssh -i /home/{{ bg_laws_user }}/.ssh/homelab-docker.key -o IdentitiesOnly=yes"
+  changed_when: false
+  become: true
+  become_user: "{{ bg_laws_user }}"
+
+- name: Point the trees' ssh at the deploy key permanently
+  # The runner pushes to the data repo from cron, with no ansible around to
+  # supply key_file — the key must be wired into the repo config itself.
+  community.general.git_config:
+    repo: "{{ bg_laws_root }}/{{ item }}"
+    scope: local
+    name: core.sshCommand
+    value: "ssh -i /home/{{ bg_laws_user }}/.ssh/homelab-docker.key -o IdentitiesOnly=yes"
+  loop: [pipeline, data]
+  become: true
+  become_user: "{{ bg_laws_user }}"
+
+- name: Install pipeline dependencies (bun install --production, §4.2)
+  ansible.builtin.command:
+    cmd: /usr/local/bin/bun install --production --frozen-lockfile
+    chdir: "{{ bg_laws_root }}/pipeline"
+  register: bg_laws_bun_install
+  changed_when: "'no changes' not in bg_laws_bun_install.stdout"
+  become: true
+  become_user: "{{ bg_laws_user }}"
+
+# --- env + wrappers (§4.3, §4.4) --------------------------------------------
+
+- name: Render the environment file (0600 even though v1 holds no secret here)
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ bg_laws_root }}/env"
+    owner: "{{ bg_laws_user }}"
+    group: "{{ bg_laws_user }}"
+    mode: "0600"
+  no_log: true
+
+- name: Install the runner wrappers
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ bg_laws_root }}/{{ item }}"
+    owner: "{{ bg_laws_user }}"
+    group: "{{ bg_laws_user }}"
+    mode: "0755"
+  loop:
+    - backfill.sh
+    - incremental.sh
+    - start-backfill.sh
+
+# --- cron + logrotate (§4.4, §4.6) -------------------------------------------
+
+- name: Install the daily incremental cron
+  ansible.builtin.template:
+    src: bg-laws-cron.j2
+    dest: /etc/cron.d/bg-laws
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install logrotate for /opt/bg-laws/logs
+  ansible.builtin.template:
+    src: logrotate.j2
+    dest: /etc/logrotate.d/bg-laws
+    owner: root
+    group: root
+    mode: "0644"
+
+# --- verification ------------------------------------------------------------
+
+- name: Verify the CLI runs under the deployed env
+  # `version` is the CLI's exit-0 smoke command; bare --help exits 1 by
+  # design (usage, 00 §7). Proves bun + node_modules + the TS entrypoint.
+  ansible.builtin.shell: |
+    set -a; . {{ bg_laws_root }}/env; set +a
+    cd {{ bg_laws_root }}/pipeline
+    /usr/local/bin/bun run src/cli/main.ts version
+  register: bg_laws_cli_check
+  changed_when: false
+  become: true
+  become_user: "{{ bg_laws_user }}"
+
+- name: Report deploy state
+  ansible.builtin.debug:
+    msg: >-
+      bg-laws runtime deployed: bun {{ bg_laws_bun_version }},
+      CLI answers "{{ bg_laws_cli_check.stdout | trim }}".
+      Backfill NOT started (operator decision, PRD 4.6) — start it with:
+      sudo -u {{ bg_laws_user }} {{ bg_laws_root }}/start-backfill.sh

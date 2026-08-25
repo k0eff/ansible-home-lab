@@ -1,0 +1,5 @@
+# Managed by ansible (roles/bg-laws) — daily bg-laws incremental + admin
+# rebuild (80-queue-worker-admin.md §4.4). flock -n: if the backfill (or a
+# previous incremental) still holds the run lock, skip this slot entirely.
+SHELL=/bin/sh
+{{ bg_laws_cron_minute }} {{ bg_laws_cron_hour }} * * * {{ bg_laws_user }}  flock -n {{ bg_laws_root }}/var/run.lock {{ bg_laws_root }}/incremental.sh >> {{ bg_laws_root }}/logs/incremental.log 2>&1

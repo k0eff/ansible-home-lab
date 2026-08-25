@@ -20,6 +20,10 @@
   - geerlingguy.docker
   - ops-settings
   - prometheus.prometheus.node_exporter
+  # bg-laws pipeline runtime (bg-laws-pipeline/docs/spec/80 §4). Tag-scoped
+  # so it can be applied alone: ... playbook-index.yaml -l ops --tags bg_laws
+  - role: bg-laws
+    tags: [bg_laws]
 
 
 - name: Disk storage setup

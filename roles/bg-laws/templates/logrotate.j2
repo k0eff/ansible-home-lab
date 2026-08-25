@@ -1,0 +1,11 @@
+# Managed by ansible (roles/bg-laws) — 80-queue-worker-admin.md §4.6.
+# copytruncate: the multi-hour backfill keeps its fd open across rotation.
+{{ bg_laws_root }}/logs/*.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
