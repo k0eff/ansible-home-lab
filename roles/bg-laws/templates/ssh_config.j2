@@ -1,0 +1,16 @@
+# /home/{{ bg_laws_user }}/.ssh/config — managed by ansible (roles/bg-laws).
+# Host aliases so each bg-laws clone uses its own dedicated GitHub deploy
+# key (deploy keys are unique per repo — one key cannot serve both remotes).
+# The clone URLs in defaults/main.yaml use these aliases.
+
+Host github.com-bg-laws-pipeline
+  HostName github.com
+  User git
+  IdentityFile /home/{{ bg_laws_user }}/.ssh/bg-laws-pipeline-deploy.key
+  IdentitiesOnly yes
+
+Host github.com-bg-laws-data
+  HostName github.com
+  User git
+  IdentityFile /home/{{ bg_laws_user }}/.ssh/bg-laws-data-deploy.key
+  IdentitiesOnly yes

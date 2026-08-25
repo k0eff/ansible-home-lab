@@ -30,15 +30,37 @@
     state: present
     key: "{{ lookup('file', '../../../protected/keys/main/homelab-main.key.pub') }}"
 
-- name: Install the github deploy key for the bg-laws clones
-  # Same key + convention roles/ops-settings/tasks/main.yaml uses for
-  # helmfile-home-lab. The value lives only in the protected repo.
+- name: Install the dedicated github deploy keys for the bg-laws clones
+  # Ticket 37: per-repo deploy keys (pipeline read-only, data read-write —
+  # the runner pushes legal commits from vm700). Values live only in the
+  # protected repo; registered on GitHub as deploy keys "vm700-bg-laws".
   ansible.builtin.copy:
-    dest: "/home/{{ bg_laws_user }}/.ssh/homelab-docker.key"
-    src: "../../../protected/keys/docker/homelab-docker.key"
+    dest: "/home/{{ bg_laws_user }}/.ssh/{{ item }}"
+    src: "../../../protected/keys/bg-laws/{{ item }}"
     owner: "{{ bg_laws_user }}"
     group: "{{ bg_laws_user }}"
-    mode: "0400"
+    mode: "0600"
+  loop:
+    - bg-laws-pipeline-deploy.key
+    - bg-laws-data-deploy.key
+
+- name: Wire the host aliases to the deploy keys (bglaws ~/.ssh/config)
+  # github.com-bg-laws-{pipeline,data} → github.com with the respective
+  # IdentityFile. This is what lets cron-driven git push/fetch work with no
+  # ansible around to supply key_file.
+  ansible.builtin.template:
+    src: ssh_config.j2
+    dest: "/home/{{ bg_laws_user }}/.ssh/config"
+    owner: "{{ bg_laws_user }}"
+    group: "{{ bg_laws_user }}"
+    mode: "0600"
+
+- name: Remove the retired shared deploy key from the bglaws account
+  # The homelab-docker.key convention was abandoned for bg-laws (ticket 37:
+  # that key is registered to no GitHub identity). Never reference it again.
+  ansible.builtin.file:
+    path: "/home/{{ bg_laws_user }}/.ssh/homelab-docker.key"
+    state: absent
 
 # --- binaries (§4.1) ---------------------------------------------------------
 
@@ -117,32 +139,38 @@
     - { path: "{{ bg_laws_root }}/var/admin", mode: "0755" }
 
 # --- deploy-key access probe -------------------------------------------------
-# GitHub deploy keys are unique per repo, so protected/keys/docker/
-# homelab-docker.key works only for the repos its machine account can see.
-# If it cannot see the bg-laws remotes yet, everything else still deploys
-# and the clone slice is reported as pending-secret instead of aborting.
+# Each repo has its own deploy key (unique per repo on GitHub), resolved via
+# the ~/.ssh/config aliases installed above. If either remote is not
+# reachable yet, everything else still deploys and the clone slice is
+# reported as pending-secret instead of aborting.
 
 - name: Probe deploy-key access to the bg-laws remotes
-  ansible.builtin.command: git ls-remote {{ bg_laws_pipeline_repo }} -h refs/heads/main
+  ansible.builtin.command: git ls-remote {{ item }} -h refs/heads/main
   environment:
-    GIT_SSH_COMMAND: "ssh -i /home/{{ bg_laws_user }}/.ssh/homelab-docker.key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+    # Identity comes from ~/.ssh/config; accept-new only pins github.com's
+    # host key on first contact.
+    GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new"
+  loop:
+    - "{{ bg_laws_pipeline_repo }}"
+    - "{{ bg_laws_data_repo }}"
   register: bg_laws_repo_probe
   changed_when: false
   failed_when: false
   become: true
   become_user: "{{ bg_laws_user }}"
 
-- name: Record whether the deploy key can reach the repos
+- name: Record whether the deploy keys can reach both repos
   ansible.builtin.set_fact:
-    bg_laws_repo_access: "{{ bg_laws_repo_probe.rc == 0 }}"
+    bg_laws_repo_access: "{{ bg_laws_repo_probe.results | rejectattr('rc', 'eq', 0) | list | length == 0 }}"
 
 - name: Warn loudly when the clone slice is pending a secret
   ansible.builtin.debug:
     msg: >-
-      PENDING-SECRET: the deploy key (protected/keys/docker/homelab-docker.key)
-      is denied for {{ bg_laws_pipeline_repo }} — grant its machine account
-      read+write on k0eff/bg-laws-pipeline and k0eff/bg-laws, then re-run
-      this play. Everything except the clones/deps/CLI check deploys anyway.
+      PENDING-SECRET: a deploy key (protected/keys/bg-laws/) is denied for
+      {{ bg_laws_repo_probe.results | rejectattr('rc', 'eq', 0) | map(attribute='item') | join(', ') }}
+      — register the matching .pub as a GitHub deploy key (pipeline
+      read-only, data read-write), then re-run this play. Everything except
+      the clones/deps/CLI check deploys anyway.
   when: not bg_laws_repo_access
 
 - name: Clone bg-laws-pipeline (first run only)
@@ -153,7 +181,6 @@
     repo: "{{ bg_laws_pipeline_repo }}"
     dest: "{{ bg_laws_root }}/pipeline"
     version: main
-    key_file: "/home/{{ bg_laws_user }}/.ssh/homelab-docker.key"
     accept_newhostkey: true
     update: false
   become: true
@@ -165,7 +192,6 @@
     repo: "{{ bg_laws_data_repo }}"
     dest: "{{ bg_laws_root }}/data"
     version: main
-    key_file: "/home/{{ bg_laws_user }}/.ssh/homelab-docker.key"
     accept_newhostkey: true
     update: false
   become: true
@@ -179,7 +205,7 @@
   ansible.builtin.shell: |
     flock -n {{ bg_laws_root }}/var/run.lock -c '
       cd {{ bg_laws_root }}/pipeline &&
-      GIT_SSH_COMMAND="ssh -i /home/{{ bg_laws_user }}/.ssh/homelab-docker.key -o IdentitiesOnly=yes" git fetch origin &&
+      git fetch origin &&
       git merge --ff-only origin/main' \
     || echo LOCK_BUSY_OR_DIVERGED
   register: bg_laws_pipeline_update
@@ -189,25 +215,13 @@
   when: bg_laws_repo_access
 
 - name: Fetch the data repo (fetch ONLY — the runner owns this tree, §4.7)
+  # No GIT_SSH_COMMAND / core.sshCommand needed anywhere: the remote URL's
+  # host alias + ~/.ssh/config wire the right key permanently, including
+  # for the runner's cron-driven pushes.
   ansible.builtin.command:
     cmd: git fetch origin
     chdir: "{{ bg_laws_root }}/data"
-  environment:
-    GIT_SSH_COMMAND: "ssh -i /home/{{ bg_laws_user }}/.ssh/homelab-docker.key -o IdentitiesOnly=yes"
   changed_when: false
-  become: true
-  become_user: "{{ bg_laws_user }}"
-  when: bg_laws_repo_access
-
-- name: Point the trees' ssh at the deploy key permanently
-  # The runner pushes to the data repo from cron, with no ansible around to
-  # supply key_file — the key must be wired into the repo config itself.
-  community.general.git_config:
-    repo: "{{ bg_laws_root }}/{{ item }}"
-    scope: local
-    name: core.sshCommand
-    value: "ssh -i /home/{{ bg_laws_user }}/.ssh/homelab-docker.key -o IdentitiesOnly=yes"
-  loop: [pipeline, data]
   become: true
   become_user: "{{ bg_laws_user }}"
   when: bg_laws_repo_access
