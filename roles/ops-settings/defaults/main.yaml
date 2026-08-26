@@ -540,6 +540,10 @@ imot2026_min_mongo_free_gb: 5
 # second signs every unsubscribe link already emailed.
 imot2026_public_id_secret: ""
 imot2026_unsubscribe_secret: ""
+# Signs the per-listing click token in digest links, so a recipient with no
+# session can still open one. A known value lets anyone mint a link naming
+# any subscriber.
+imot2026_click_secret: ""
 
 imot2026_discord_webhook_url: ""
 imot2026_discord_bot_token: ""
