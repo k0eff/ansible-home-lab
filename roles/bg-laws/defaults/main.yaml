@@ -43,5 +43,9 @@ bg_laws_openrouter_api_key: ""
 bg_laws_worker_id: vm700-bglaws
 bg_laws_worker_on_calendar: "*:0/5"
 bg_laws_worker_max_jobs_per_pass: 50
-bg_laws_worker_request_timeout_ms: 120000
+# 300s, not the spec's 120s default: measured 2026-08-30 — agy needs
+# >120s to write out multi-KB consolidations of the biggest units, and a
+# local worker has no rsync window to protect. Ticks never overlap anyway
+# (var/worker.lock), so a slow job just stretches the pass.
+bg_laws_worker_request_timeout_ms: 300000
 bg_laws_agy_dir: "/home/{{ bg_laws_user }}/.local/bin"

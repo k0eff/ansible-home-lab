@@ -19,8 +19,12 @@
       "MEASURED 2026-08-26: GitHub accepts each key for exactly its repo (ssh -F /dev/null -i <key> -T git@github.com → 'Hi k0eff/bg-laws-pipeline!' / 'Hi k0eff/bg-laws!'); registered via gh as deploy keys titled vm700-bg-laws (pipeline read-only, data read-write)",
       "MEASURED 2026-08-25: /usr/local/bin/bun --version on vm700 prints 1.3.14, exit 0 (pinned to the operator laptop's version); bglaws user uid=1001, no sudo; /opt/bg-laws layout + var/queue/{pending,leases,done,failed} + var/admin all bglaws:bglaws; logrotate stanza parses clean under logrotate -d",
       "KNOWN LIMIT: static serving of /opt/bg-laws/var/admin (spec 80 §3.4/§4.7 item 7) not wired — needs a caddy edge change, tracked separately",
-      "KNOWN LIMIT (ticket 38 / QA-302, pipeline-side): the CLI still refuses 'run incremental'/'run backfill' (E_USAGE, src/cli/run.ts) — the 06:10 cron will exit 1 and start-backfill.sh will die until ticket 38 lands. Backfill deliberately NOT started; cron schedule semantics untouched"
+      "KNOWN LIMIT (ticket 38 / QA-302, pipeline-side): the CLI still refuses 'run incremental'/'run backfill' (E_USAGE, src/cli/run.ts) — the 06:10 cron will exit 1 and start-backfill.sh will die until ticket 38 lands. Backfill deliberately NOT started; cron schedule semantics untouched",
+      "MEASURED 2026-08-30: playbook -l ops --tags bg_laws green (ok=32 changed=5 failed=0 first run; ok=32 changed=1 after the 300s-timeout bump); systemctl list-timers shows bg-laws-worker.timer -> bg-laws-worker.service with a 5-min next fire; worker.json on vm700 carries remote: null + queueDir /opt/bg-laws/var/queue + requestTimeoutMs 300000",
+      "MEASURED 2026-08-30: full live pass on the agy OAuth quota — /opt/bg-laws/logs/worker.log: 'op=providers enabled=agy-cli' then 'op=pass selected=50 done=43 failed=7 stopped=null exit=0'; var/queue/done grew 66 -> 133 across the day's passes while the backfill kept enqueueing (pending ~582); remaining failures are acceptance rejections (needs-review path) plus pre-existing records; the next timer-fired pass started itself while the previous one was being read",
+      "MEASURED 2026-08-30: xrdp already present on the host (task ok, not changed) — ad-hoc install now declared; the tick's pull is guarded by var/run.lock and correctly skips while the live backfill (1d+ elapsed, holds the lock) runs",
+      "KNOWN LIMIT: while the backfill holds var/run.lock the worker tick cannot self-update the pipeline tree (spec 80 §7) — the two fixes of 2026-08-30 (authProbe path, no-tools preamble) were pulled by hand as bglaws (git pull --ff-only, content-only, running processes unaffected); once the backfill exits, ticks self-update again. Also found and cleared: stale STAGED report files in /opt/bg-laws/pipeline made every ff-only merge refuse silently — unstaged with git reset, files kept on disk"
     ]
   },
-  "status": "pending"
+  "status": "pass"
 }
