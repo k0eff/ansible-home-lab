@@ -1,0 +1,15 @@
+{# Managed by ansible (roles/bg-laws) — vm700 worker config,
+   bg-laws-pipeline/docs/spec/80-queue-worker-admin.md §2.2 + §4.4 (deviation #76).
+   remote: null → the worker operates on the local queue directly, no rsync.
+   NO secret lives here: the LLM backend is the agy CLI on the bglaws OAuth quota. #}
+{
+  "version": 1,
+  "workerId": "{{ bg_laws_worker_id }}",
+  "remote": null,
+  "queueDir": "{{ bg_laws_root }}/var/queue",
+  "leaseMinutes": 30,
+  "maxJobsPerPass": {{ bg_laws_worker_max_jobs_per_pass }},
+  "poll": { "intervalSeconds": 300 },
+  "llmConfigPath": "config/llm.json",
+  "requestTimeoutMs": {{ bg_laws_worker_request_timeout_ms }}
+}

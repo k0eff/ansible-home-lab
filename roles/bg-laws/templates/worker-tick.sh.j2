@@ -1,0 +1,26 @@
+#!/bin/sh
+# Managed by ansible (roles/bg-laws) — one queue-worker pass on vm700
+# (spec 80 §4.4 amended, deviation #76). bg-laws-worker.timer runs this
+# every 5 minutes; the non-blocking flock on var/worker.lock makes
+# overlapping ticks skip instead of stack. Pull-before-pass is the §7
+# version-compatibility rule (the worker must never run stale code); the
+# pull itself takes the run.lock non-blocking so code is never swapped out
+# from under a running backfill/incremental — a skipped pull or a failed
+# install just runs the current checkout, like the retired laptop tick.
+# Exit codes 2/3 are normal steady state (§4.5: flags written / budget or
+# agy quota reached mid-pass) and are mapped to 0 for systemd.
+exec >> {{ bg_laws_root }}/logs/worker.log 2>&1
+exec 9> {{ bg_laws_root }}/var/worker.lock
+if ! flock -n 9; then
+  echo "worker-tick: previous pass still running, skipping"
+  exit 0
+fi
+set -a; . {{ bg_laws_root }}/env; set +a
+cd {{ bg_laws_root }}/pipeline || exit 1
+flock -n {{ bg_laws_root }}/var/run.lock -c 'git pull --ff-only -q' \
+  || echo "worker-tick: pull skipped (lock busy, offline or diverged), running current code"
+/usr/local/bin/bun install --production --frozen-lockfile --silent \
+  || echo "worker-tick: bun install failed, running current deps"
+/usr/local/bin/bun run src/cli/main.ts worker once --config {{ bg_laws_root }}/worker.json
+rc=$?
+case $rc in 0|2|3) exit 0;; *) exit $rc;; esac

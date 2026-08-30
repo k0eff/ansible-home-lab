@@ -2,8 +2,9 @@
 # bg-laws pipeline runtime on vm700. Contract: bg-laws-pipeline/docs/spec/
 # 80-queue-worker-admin.md §4 — the role is written from that section alone.
 # The backfill is deliberately NOT started here (PRD 4.6: operator-started,
-# once, inside tmux). This role only lays the ground: user, bun, clones,
-# env, wrappers, cron, logrotate. Static serving of var/admin (§3.4/§4.7
+# once, inside tmux). This role lays the ground — user, bun, clones, env,
+# wrappers, cron, logrotate — and runs the queue worker as a systemd timer
+# (§4.4 amended, deviation #76). Static serving of var/admin (§3.4/§4.7
 # item 7) is NOT wired yet — it needs a caddy edge change, tracked
 # separately; admin build still writes the files.
 
@@ -77,6 +78,15 @@
       - acl          # setfacl — ansible needs it to become the unprivileged bglaws user
     state: present
     update_cache: true
+
+- name: Install xrdp (graphical session for the agy OAuth login)
+  # The worker on this host spends the bglaws account's agy OAuth quota
+  # (deviation #76); the Google OAuth flow needs a browser in a graphical
+  # session, done over RDP. Installed ad-hoc on 2026-08-30 — declared here
+  # so host state stays ansible-owned (one tool per layer).
+  ansible.builtin.apt:
+    name: xrdp
+    state: present
 
 - name: Check whether bun is already installed at the pinned version
   ansible.builtin.command: /usr/local/bin/bun --version
@@ -300,3 +310,82 @@
       Backfill NOT started (operator decision, PRD 4.6) — start it with:
       sudo -u {{ bg_laws_user }} {{ bg_laws_root }}/start-backfill.sh
   when: bg_laws_repo_access
+
+# --- worker access (§2.2: a REMOTE worker rsyncs the queue over ssh) ---------
+# The laptop worker is retired (the worker runs on this host now, below),
+# but the access stays declared: it is deployed state, and any future
+# remote worker plus operator debugging rides the same key + ACLs.
+
+- name: Authorize the operator laptop key for the ansible user (worker rsync)
+  ansible.posix.authorized_key:
+    user: "{{ ansible_user }}"
+    key: "{{ lookup('file', lookup('env', 'HOME') + '/.ssh/id_rsa.pub') }}"
+    comment: "bg-laws worker rsync (operator laptop)"
+  become: true
+
+- name: Grant the ansible user rwx on the queue tree (worker lease/done writes)
+  ansible.posix.acl:
+    path: /opt/bg-laws/var/queue
+    entity: "{{ ansible_user }}"
+    etype: user
+    permissions: rwx
+    recursive: true
+    state: present
+  become: true
+
+- name: Default ACL so new queue files stay writable by both sides
+  ansible.posix.acl:
+    path: /opt/bg-laws/var/queue
+    entity: "{{ item }}"
+    etype: user
+    permissions: rwx
+    default: true
+    recursive: true
+    state: present
+  become: true
+  loop:
+    - "{{ ansible_user }}"
+    - "{{ bg_laws_user }}"
+
+# --- vm700 queue worker (§4.4 amended — deviation #76) -----------------------
+# The worker itself now runs on THIS host: systemd timer → one
+# `worker once` pass every 5 minutes as bglaws, remote: null (the queue is
+# local, no rsync), LLM via the agy CLI on the bglaws OAuth quota
+# (~/.gemini/antigravity — operator-provisioned once over xrdp, never
+# managed here). The RUNNER still never enables CLI providers, and no API
+# key lives on this host. The laptop launchd worker is retired.
+
+- name: Render the vm700 worker config (remote null — the queue is local)
+  ansible.builtin.template:
+    src: worker.json.j2
+    dest: "{{ bg_laws_root }}/worker.json"
+    owner: "{{ bg_laws_user }}"
+    group: "{{ bg_laws_user }}"
+    mode: "0644"
+
+- name: Install the worker tick wrapper
+  ansible.builtin.template:
+    src: worker-tick.sh.j2
+    dest: "{{ bg_laws_root }}/worker-tick.sh"
+    owner: "{{ bg_laws_user }}"
+    group: "{{ bg_laws_user }}"
+    mode: "0755"
+
+- name: Install the worker systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - bg-laws-worker.service
+    - bg-laws-worker.timer
+  register: bg_laws_worker_units
+
+- name: Enable and start the worker timer
+  ansible.builtin.systemd_service:
+    name: bg-laws-worker.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ bg_laws_worker_units.changed }}"

@@ -1,0 +1,17 @@
+# Managed by ansible (roles/bg-laws) — one bg-laws queue-worker pass as
+# {{ bg_laws_user }} on the agy OAuth quota (spec 80 §4.4 amended, deviation #76).
+# Driven by bg-laws-worker.timer; logs append to {{ bg_laws_root }}/logs/worker.log.
+[Unit]
+Description=bg-laws queue worker (one pass, agy OAuth quota)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ bg_laws_user }}
+Group={{ bg_laws_user }}
+WorkingDirectory={{ bg_laws_root }}/pipeline
+# agy (the OAuth CLI the worker spends first) lives in the bglaws user's
+# ~/.local/bin; bun in /usr/local/bin. The worker resolves both on PATH.
+Environment=PATH={{ bg_laws_agy_dir }}:/usr/local/bin:/usr/bin:/bin
+ExecStart={{ bg_laws_root }}/worker-tick.sh

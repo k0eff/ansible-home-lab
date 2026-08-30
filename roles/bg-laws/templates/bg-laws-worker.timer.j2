@@ -1,0 +1,13 @@
+# Managed by ansible (roles/bg-laws) — fires the bg-laws queue worker
+# every 5 minutes (spec 80 §4.4 amended, deviation #76). Missed ticks are
+# not replayed (Persistent=false): the queue waits, the next tick drains.
+[Unit]
+Description=bg-laws queue worker every 5 minutes
+
+[Timer]
+OnCalendar={{ bg_laws_worker_on_calendar }}
+RandomizedDelaySec=20
+Persistent=false
+
+[Install]
+WantedBy=timers.target
