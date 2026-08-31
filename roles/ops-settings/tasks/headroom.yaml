@@ -61,11 +61,21 @@
 # were removed from this stack — the LLM-routing chain they backed
 # (VS Code Claude Code ext -> headroom -> nginx-ingest -> litellm -> Anthropic)
 # is retired; the extension now talks to Anthropic directly. Only
-# prometheus + grafana remain. remove_orphans tears down the now-undeclared
-# containers/volumes/networks on the next apply.
+# prometheus + grafana remain.
+#
+# NOT remove_orphans: true here. Applying this role's own removal with that
+# flag set (2026-08-31, this same change) stopped containers across the
+# WHOLE host — rocketchat, omniroute, music-production-engine and even
+# Caddy itself went down, not just koeff-ai-stack's own orphaned services.
+# community.docker.docker_compose_v2's orphan detection did not stay scoped
+# to this project the way the plain `docker compose up --remove-orphans`
+# CLI reliably does. Tearing down the now-undeclared postgres/litellm/
+# nginx-ingest/headroom containers is a one-time, manual step instead:
+#   ssh <host> 'cd {{ ai_stack_dir }} && docker compose up -d --remove-orphans'
+# — already done for the 2026-08-31 removal. Do not re-add remove_orphans
+# to this task without first reproducing why the module mis-scoped it.
 - name: Start koeff-ai-stack
   community.docker.docker_compose_v2:
     project_src: "{{ ai_stack_dir }}"
     state: present
     pull: always
-    remove_orphans: true
