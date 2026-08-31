@@ -125,7 +125,7 @@
   tags:
     - portainer_stack
 
-- name: Import Headroom + LiteLLM + Qdrant setup
+- name: Import koeff-ai-stack setup (prometheus + grafana only — litellm/qdrant/ollama/headroom decommissioned 2026-08-31)
   import_tasks: headroom.yaml
   tags:
     - headroom_stack

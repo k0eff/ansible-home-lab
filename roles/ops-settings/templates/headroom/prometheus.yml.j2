@@ -2,20 +2,8 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
-scrape_configs:
-  - job_name: litellm
-    static_configs:
-      - targets: ["litellm.local.koeff.com:4000"]
-    metrics_path: /metrics
-    authorization:
-      credentials: {{ headroom_litellm_master_key }}
-
-  - job_name: headroom
-    static_configs:
-      - targets: ["headroom.local.koeff.com:8787"]
-    metrics_path: /metrics
-
-  - job_name: qdrant
-    static_configs:
-      - targets: ["qdrant.local.koeff.com:6333"]
-    metrics_path: /metrics
+# koeff-ai-stack's LLM-routing services (litellm, headroom, qdrant, ollama,
+# postgres) were decommissioned — only prometheus + grafana remain from this
+# stack. No scrape targets left to declare; add real ones here if this
+# prometheus instance ever gains something else to monitor.
+scrape_configs: []

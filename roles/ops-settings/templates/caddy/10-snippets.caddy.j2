@@ -114,37 +114,6 @@
 	reverse_proxy {{ caddy_backend_host }}:{{ caddy_prometheus_port }}
 }
 
-# litellm.local.koeff.com - LiteLLM proxy for LLM API aggregation
-(litellm_local_proxy) {
-	reverse_proxy {{ caddy_backend_host }}:{{ caddy_litellm_port }} {
-		# SSE streaming: disable response buffering so tokens reach the client
-		# as they are produced, not in one lump at the end.
-		flush_interval {{ caddy_sse_flush_interval }}
-	}
-}
-
-# qdrant.local.koeff.com - Qdrant vector database
-(qdrant_local_proxy) {
-	reverse_proxy {{ caddy_backend_host }}:{{ caddy_qdrant_port }} {
-		# Request body size is unlimited (Caddy default), which is correct
-		# for large vector uploads and queries.
-	}
-}
-
-# headroom.local.koeff.com - Headroom application (long-running requests)
-# CRITICAL: The live HTTPRoute headroom-local carries timeouts: {request: 600s, backendRequest: 600s}.
-# This is the ONLY non-default timeout in the entire cluster. It must be preserved.
-(headroom_local_proxy) {
-	reverse_proxy {{ caddy_backend_host }}:{{ caddy_headroom_port }} {
-		# Apply the 600s timeout to both the read and write sides of this connection.
-		# transport { read_timeout, write_timeout } applies to the reverse_proxy transport.
-		transport http {
-			read_timeout {{ caddy_headroom_timeout }}
-			write_timeout {{ caddy_headroom_timeout }}
-		}
-	}
-}
-
 # portainer.local.koeff.com - Portainer container management UI
 (portainer_local_proxy) {
 	reverse_proxy {{ caddy_backend_host }}:{{ caddy_portainer_port }} {

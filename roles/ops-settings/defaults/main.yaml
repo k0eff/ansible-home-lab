@@ -197,9 +197,6 @@ caddy_imot_port: 8790
 caddy_omniroute_port: 20130
 caddy_grafana_port: 3000
 caddy_prometheus_port: 9090
-caddy_litellm_port: 4000
-caddy_qdrant_port: 6333
-caddy_headroom_port: 8787
 caddy_portainer_port: 9000
 
 # --- Hostnames (18 public + 1 parallel-run fallback) ----------------------------
@@ -216,9 +213,6 @@ caddy_host_shareurl: shareurl.koeff.com
 # Production internal (*.local.koeff.com — private IPs, HTTPS only).
 caddy_host_grafana: grafana.local.koeff.com
 caddy_host_prometheus: prometheus.local.koeff.com
-caddy_host_litellm: litellm.local.koeff.com
-caddy_host_qdrant: qdrant.local.koeff.com
-caddy_host_headroom: headroom.local.koeff.com
 caddy_host_portainer: portainer.local.koeff.com
 
 # Parallel-run v2 hostnames — RETIRED 2026-08-16.
@@ -249,14 +243,6 @@ caddy_share_csp: "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.js
 # Replaces </head>, and re-closes the tag itself — dropping the trailing </head>
 # would produce unterminated markup.
 caddy_share_og_injection: '<meta property="og:title" content="Koeff Family File Share"><meta property="og:image" content="https://raw.githubusercontent.com/k0eff/helmfile-home-lab/main/assets/share.koeff.com-heart.png"><meta property="og:image:width" content="128"><meta property="og:image:height" content="128"><meta property="og:type" content="website"><script src="https://cdn.jsdelivr.net/gh/k0eff/helmfile-home-lab@3c193ea7e5874ce6cb83acfab871455d22eea8fe/assets/brand.js"></script></head>'
-
-# --- Non-default directives (see README.md §6) -----------------------------------
-# headroom.local carries the cluster's ONLY non-default timeout.
-caddy_headroom_timeout: 600s
-
-# litellm only. Disables response buffering so SSE tokens reach the client as
-# produced; without it streamed completions arrive in one lump at the end.
-caddy_sse_flush_interval: -1
 
 # --- Logging and persistence -----------------------------------------------------
 caddy_log_format: json

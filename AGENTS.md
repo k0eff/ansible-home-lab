@@ -22,7 +22,7 @@ which is checked out locally at `./protected/`.
 All sensitive values are stored in `protected/inventories/group_vars/all.yaml`
 (and other files under `protected/`), which live in the private repo above.
 
-Templates in `roles/*/templates/` may reference secret variables (e.g. `{{ litellm_db_password }}`),
+Templates in `roles/*/templates/` may reference secret variables (e.g. `{{ grafana_admin_password }}`),
 but the variable values themselves must never appear in this repo.
 
 ### If you are unsure

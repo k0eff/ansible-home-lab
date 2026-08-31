@@ -319,7 +319,8 @@ If vm700 or Caddy itself is broken and you need to restore service immediately:
 
 1. **Do not wait for DNS TTL.** Update every hostname back to the cluster VIPs:
    - Public: 192.168.31.235 (chat, n8n, overseerr, musicengine, omniroute, share, shareurl)
-   - Internal: 192.168.31.237 (grafana, prometheus, litellm, qdrant, headroom, portainer)
+   - Internal: 192.168.31.237 (grafana, prometheus, portainer — litellm/qdrant/headroom
+     were decommissioned 2026-08-31, see roles/ops-settings/docs/caddy.md)
 
 2. The cluster Envoy Gateway remains live and untouched. Traffic reverts instantly.
 

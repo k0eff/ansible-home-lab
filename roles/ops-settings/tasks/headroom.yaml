@@ -14,88 +14,8 @@
   loop:
     - { path: "{{ ai_stack_dir }}", mode: "0755" }
     - { path: "{{ ai_stack_data_dir }}", mode: "0755" }
-    - { path: "{{ ai_stack_data_dir }}/qdrant", mode: "0777" }
-    - { path: "{{ ai_stack_data_dir }}/qdrant/storage", mode: "0777" }
-    - { path: "{{ ai_stack_data_dir }}/headroom", mode: "0755" }
-    - { path: "{{ ai_stack_data_dir }}/litellm", mode: "0755" }
     - { path: "{{ ai_stack_data_dir }}/prometheus", mode: "0777" }
     - { path: "{{ ai_stack_data_dir }}/grafana", mode: "0777" }
-    - { path: "{{ ai_stack_data_dir }}/postgres", mode: "0755" }
-    - { path: "{{ ai_stack_data_dir }}/ollama", mode: "0755" }
-
-- name: Migrate data from old headroom directories if they exist
-  ansible.builtin.shell: |
-    set -e
-    OLD_STACK="/opt/headroom"
-    OLD_DATA="/var/lib/docker-data/headroom"
-    NEW_STACK="/opt/koeff-ai-stack"
-    NEW_DATA="/var/lib/docker-data/koeff-ai-stack"
-
-    # Stop old stack if running
-    if [ -f "$OLD_STACK/docker-compose.yml" ]; then
-      docker compose -p headroom -f "$OLD_STACK/docker-compose.yml" down 2>/dev/null || true
-    fi
-
-    # Migrate persistent data volumes (skip if already migrated or source missing)
-    for subdir in postgres qdrant grafana prometheus litellm headroom ollama; do
-      src="$OLD_DATA/$subdir"
-      dst="$NEW_DATA/$subdir"
-      if [ -d "$src" ] && [ "$(ls -A $src 2>/dev/null)" ]; then
-        if [ ! "$(ls -A $dst 2>/dev/null)" ]; then
-          cp -a "$src/." "$dst/"
-          echo "migrated: $subdir"
-        else
-          echo "skipped (dst not empty): $subdir"
-        fi
-      fi
-    done
-
-    # Migrate master key
-    if [ -f "$OLD_DATA/litellm.masterkey" ] && [ ! -f "$NEW_DATA/litellm.masterkey" ]; then
-      cp "$OLD_DATA/litellm.masterkey" "$NEW_DATA/litellm.masterkey"
-      chmod 600 "$NEW_DATA/litellm.masterkey"
-      echo "migrated: masterkey"
-    fi
-  args:
-    executable: /bin/bash
-  changed_when: true
-  ignore_errors: true
-
-- name: Ensure LiteLLM master key exists
-  ansible.builtin.shell: |
-    set -eu
-    secret_file="{{ ai_stack_data_dir }}/litellm.masterkey"
-    if [ ! -f "$secret_file" ]; then
-      umask 077
-      openssl rand -base64 48 | tr -d '\n' > "$secret_file"
-    fi
-  args:
-    creates: "{{ ai_stack_data_dir }}/litellm.masterkey"
-
-- name: Read LiteLLM master key
-  ansible.builtin.slurp:
-    src: "{{ ai_stack_data_dir }}/litellm.masterkey"
-  register: ai_stack_litellm_master_key_file
-
-- name: Set LiteLLM master key fact
-  ansible.builtin.set_fact:
-    headroom_litellm_master_key: "{{ ai_stack_litellm_master_key_file.content | b64decode | trim }}"
-
-- name: Render LiteLLM env file
-  ansible.builtin.template:
-    src: headroom/litellm.env.j2
-    dest: "{{ ai_stack_dir }}/litellm.env"
-    owner: root
-    group: root
-    mode: "0600"
-
-- name: Render LiteLLM config file
-  ansible.builtin.template:
-    src: headroom/litellm-config.yaml.j2
-    dest: "{{ ai_stack_dir }}/litellm-config.yaml"
-    owner: root
-    group: root
-    mode: "0644"
 
 - name: Render Prometheus config
   ansible.builtin.template:
@@ -121,22 +41,6 @@
     group: root
     mode: "0644"
 
-- name: Render LiteLLM Grafana dashboard
-  ansible.builtin.template:
-    src: headroom/grafana-dashboard-litellm.json.j2
-    dest: "{{ ai_stack_dir }}/grafana-dashboard-litellm.json"
-    owner: root
-    group: root
-    mode: "0644"
-
-- name: Render Headroom Grafana dashboard
-  ansible.builtin.template:
-    src: headroom/grafana-dashboard-headroom.json.j2
-    dest: "{{ ai_stack_dir }}/grafana-dashboard-headroom.json"
-    owner: root
-    group: root
-    mode: "0644"
-
 - name: Ensure Grafana dashboards data directory
   ansible.builtin.file:
     path: "{{ ai_stack_data_dir }}/grafana/dashboards"
@@ -144,19 +48,6 @@
     owner: root
     group: root
     mode: "0755"
-
-- name: Copy dashboard files to Grafana data volume
-  ansible.builtin.shell: |
-    cp {{ ai_stack_dir }}/grafana-dashboard-*.json {{ ai_stack_data_dir }}/grafana/dashboards/
-  changed_when: true
-
-- name: Render nginx-ingest config
-  ansible.builtin.template:
-    src: headroom/nginx-ingest.conf.j2
-    dest: "{{ ai_stack_dir }}/nginx-ingest.conf"
-    owner: root
-    group: root
-    mode: "0644"
 
 - name: Render AI stack compose file
   ansible.builtin.template:
@@ -166,15 +57,15 @@
     group: root
     mode: "0644"
 
+# 2026-08-31: postgres, ollama, qdrant, litellm, nginx-ingest and headroom
+# were removed from this stack — the LLM-routing chain they backed
+# (VS Code Claude Code ext -> headroom -> nginx-ingest -> litellm -> Anthropic)
+# is retired; the extension now talks to Anthropic directly. Only
+# prometheus + grafana remain. remove_orphans tears down the now-undeclared
+# containers/volumes/networks on the next apply.
 - name: Start koeff-ai-stack
   community.docker.docker_compose_v2:
     project_src: "{{ ai_stack_dir }}"
     state: present
     pull: always
-
-- name: Pull qwen3-embedding model into Ollama
-  community.docker.docker_container_exec:
-    container: koeff-ai-stack-ollama
-    command: ollama pull qwen3-embedding:0.6b
-  register: ollama_pull
-  changed_when: "'already up to date' not in ollama_pull.stdout"
+    remove_orphans: true

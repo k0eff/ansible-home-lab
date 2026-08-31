@@ -71,19 +71,22 @@ the live `Endpoints` objects in `ns-homelab-main`, not from the Service spec.
 | 6 | `share.koeff.com` | `nginx-share:8080` → `192.168.31.108:8080` (QNAP) | **yes, 404** | sidecar; `header_up Host share.koeff.com`; no `encode` — §7 |
 | 7 | `shareurl.koeff.com` | `nginx-shareurl:8080` (static) | **yes, 200** | sidecar; bitnamilegacy image — §8 |
 
-### Internal — `*.local.koeff.com` (6)
+### Internal — `*.local.koeff.com` (3)
 
-All six resolve to a **private** IP in public Cloudflare DNS. HTTPS only today;
+All three resolve to a **private** IP in public Cloudflare DNS. HTTPS only today;
 no `:80` listener is defined for them, matching the Gateway.
+
+koeff-ai-stack's LLM-routing services (`litellm.local.koeff.com`,
+`qdrant.local.koeff.com`, `headroom.local.koeff.com`) were decommissioned
+2026-08-31 — the VS Code Claude Code extension now talks to Anthropic
+directly instead of through headroom → nginx-ingest → litellm. Only
+prometheus + grafana remain from that stack.
 
 | # | hostname | backend | non-default handling |
 |---|---|---|---|
 | 8 | `grafana.local.koeff.com` | `{{caddy_backend_host}}:3000` | WebSocket for live panels (native) |
 | 9 | `prometheus.local.koeff.com` | `{{caddy_backend_host}}:9090` | — |
-| 10 | `litellm.local.koeff.com` | `{{caddy_backend_host}}:4000` | `flush_interval -1` — §6 |
-| 11 | `qdrant.local.koeff.com` | `{{caddy_backend_host}}:6333` | large bodies (Caddy default is unlimited) |
-| 12 | `headroom.local.koeff.com` | `{{caddy_backend_host}}:8787` | **600s** read/write timeout — §6 |
-| 13 | `portainer.local.koeff.com` | `{{caddy_backend_host}}:9000` | WebSocket for container console/exec (native) |
+| 10 | `portainer.local.koeff.com` | `{{caddy_backend_host}}:9000` | WebSocket for container console/exec (native) |
 
 ### Public — v2 parallel-run (5)
 
@@ -183,13 +186,11 @@ Never inline a `reverse_proxy` in a site block.
 | `email {env.ACME_EMAIL}` | global | Same LE account contact cert-manager uses. |
 | `admin localhost:2019` | global | Admin API is full config control. Bound to container loopback and **not published**. Health checks go through :80 with a `Host:` header instead. |
 | `log { format json }` | global | Matches the Envoy access-log format the :80 traffic analysis was done against. |
-| `flush_interval -1` | `litellm.local` | SSE streaming. Disables response buffering so tokens reach the client as they are produced. Without it, streamed completions arrive in one lump at the end. |
-| `transport http { read_timeout 600s / write_timeout 600s }` and `timeouts` | `headroom.local` | The HTTPRoute carries `timeouts: {request: 600s, backendRequest: 600s}`. It is the **only** non-default timeout in the entire cluster — every other route has `timeouts: None`. |
 | `header_up Host share.koeff.com` | `share`, `share-v2` | The nginx sidecar's `sub_filter` and CSP rewrite are written against that literal Host. `share-v2` also sends `share.koeff.com` — this matches the cluster ConfigMap, which is not a typo. |
 | `header_up X-Forwarded-Proto https` / `X-Forwarded-For` | `share`, `share-v2` | The sidecar re-forwards these to the QNAP. |
 | **no** `encode` on `share`/`share-v2` | `share`, `share-v2` | The sidecar sets `proxy_set_header Accept-Encoding ""` to force plaintext upstream so `sub_filter` can rewrite the body. Compressing at Caddy would not break that, but any Caddy-side `encode` on this path is a foot-gun; leave it off and let the sidecar own content handling. |
 | *(nothing)* for WebSockets | `chat`, `n8n`, `grafana`, `portainer`, and their v2 twins | Caddy 2 proxies WebSocket upgrades natively. There is no directive. Listed here so a future reader does not "fix" its absence. |
-| *(nothing)* for body size | `chat`, `qdrant` | Caddy has **no** request-body limit by default. `proxy-body-size 0` needs no equivalent. Adding `request_body { max_size }` would be a regression. |
+| *(nothing)* for body size | `chat` | Caddy has **no** request-body limit by default. `proxy-body-size 0` needs no equivalent. Adding `request_body { max_size }` would be a regression. |
 
 ---
 
