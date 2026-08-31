@@ -503,6 +503,10 @@ imot2026_web_base_url: "https://{{ caddy_host_imot }}"
 # mount_path differs. Not currently mounted on vm700 (verified 2026-08-22).
 imot2026_library_host_path: /mnt/nas/imot2026
 
+# Local media cache on vm700's big data disk (/dev/sdb via /var/lib/docker-data).
+# Migrated off root disk (/dev/sda2) to prevent / from filling up.
+imot2026_media_cache_host_path: /var/lib/docker-data/imot2026-media-cache
+
 # Preconditions, asserted ON vm700 before a build or a bind mount is trusted.
 # Docker 29's containerd snapshotter puts image layers under
 # /var/lib/containerd, which is a DIFFERENT filesystem than / on vm700 today

@@ -1,0 +1,33 @@
+{
+  "id": "025-main-core--imot2026-media-cache-big-disk",
+  "branch": "main",
+  "name": "core--imot2026-media-cache-big-disk",
+  "category": "core",
+  "description": "Backport imot2026 media-cache directory placement to the big data disk (/var/lib/docker-data/imot2026-media-cache on /dev/sdb) instead of root disk (/dev/sda2) to prevent root disk exhaustion on vm700.",
+  "implementation": {
+    "file": "roles/ops-settings/tasks/imot2026.yaml",
+    "changes": [
+      "Added imot2026_media_cache_host_path default in defaults/main.yaml pointing to /var/lib/docker-data/imot2026-media-cache.",
+      "Added task in roles/ops-settings/tasks/imot2026.yaml ensuring directory exists with owner 10001:10001 mode 0750.",
+      "Updated roles/ops-settings/docs/imot2026.md paths documentation."
+    ]
+  },
+  "validation": {
+    "type": "static_and_host_facts",
+    "checks": [
+      {
+        "check": "ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml --syntax-check",
+        "result": "pass"
+      },
+      {
+        "check": "host directory /var/lib/docker-data/imot2026-media-cache exists with owner 10001:10001 mode 0750 on /dev/sdb",
+        "result": "pass — confirmed on vm700"
+      },
+      {
+        "check": "symlink /var/lib/imot2026/media-cache points to /var/lib/docker-data/imot2026-media-cache",
+        "result": "pass — confirmed on vm700"
+      }
+    ]
+  },
+  "status": "pass"
+}

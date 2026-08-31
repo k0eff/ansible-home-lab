@@ -43,6 +43,7 @@
   ansible.builtin.set_fact:
     imot2026_stack_dir: /opt/imot2026
     imot2026_mongo_data_dir: /var/lib/docker-data/imot2026-mongo
+    imot2026_media_cache_dir: "{{ imot2026_media_cache_host_path }}"
   when: imot2026_enabled | bool
 
 - name: Ensure the imot2026 stack directory exists
@@ -65,6 +66,16 @@
     owner: root
     group: root
     mode: "0755"
+  become: true
+  when: imot2026_enabled | bool
+
+- name: Ensure the imot2026 media cache directory exists on the data disk
+  ansible.builtin.file:
+    path: "{{ imot2026_media_cache_dir }}"
+    state: directory
+    owner: "10001"
+    group: "10001"
+    mode: "0750"
   become: true
   when: imot2026_enabled | bool
 
