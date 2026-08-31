@@ -1,5 +1,11 @@
 # Agent Instructions
 
+> **Inherits `koeff-gitroot-main/AGENTS.md`.** The monorepo root governs rules that
+> apply everywhere — security/no-secrets, the eval system, One Tool Per Layer, commit
+> and push policy, and **Token Budget & Agent Discipline**. This file adds only what is
+> specific to this repo; where the two touch the same subject, the root rule holds unless
+> this file states an explicit exception and says why.
+
 ## Security — No Secrets in This Repository
 
 This is a **public repository**. Never store secrets, credentials, or sensitive values here.
