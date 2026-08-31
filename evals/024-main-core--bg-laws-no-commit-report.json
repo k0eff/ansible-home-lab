@@ -1,0 +1,20 @@
+{
+  "id": "024",
+  "branch": "main",
+  "name": "bg-laws runner wrappers pass --no-commit-report on vm700",
+  "category": "core",
+  "description": "vm700 incident 2026-08-31: the 06:10 incremental crashed in commitReport (pipeline deviation #79 — bare git commit, bglaws has no git user.email). The pipeline-side fix makes the commit succeed with the pipeline identity, but on vm700 that would be worse: bglaws cannot push the public pipeline repo, so every report commit would diverge /opt/bg-laws/pipeline from origin and wedge the worker-tick `git pull --ff-only` self-update (spec 80 §7) the moment origin advances. The deployed wrappers therefore pass the spec'd --no-commit-report flag (spec 50 §2 stage 8: files written, no commit): backfill.sh.j2 and incremental.sh.j2. Reports stay on disk untracked; admin build still reads them.",
+  "implementation": {
+    "file": "roles/bg-laws/templates/incremental.sh.j2",
+    "changes": "roles/bg-laws/templates/incremental.sh.j2 and roles/bg-laws/templates/backfill.sh.j2: append --no-commit-report to the `run incremental` / `run backfill` invocations, with a comment naming pipeline deviation #79 and the ff-only self-update hazard"
+  },
+  "validation": {
+    "type": "live",
+    "checks": [
+      "ansible-playbook playbook-index.yaml -l vm700 --tags bg_laws — templates land changed",
+      "vm700: grep -- --no-commit-report /opt/bg-laws/backfill.sh /opt/bg-laws/incremental.sh — both hit",
+      "vm700: sudo -u bglaws git -C /opt/bg-laws/pipeline status --short shows no staged reports; worker-tick pull stays ff-only clean"
+    ]
+  },
+  "status": "pending"
+}

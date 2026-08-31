@@ -9,7 +9,10 @@
 # /usr/local/bin — bare `bun` dies with 127 before reaching the CLI.
 set -a; . {{ bg_laws_root }}/env; set +a
 cd {{ bg_laws_root }}/pipeline
-/usr/local/bin/bun run src/cli/main.ts run incremental --data-repo {{ bg_laws_root }}/data --live
+# --no-commit-report (pipeline deviation #79): bglaws cannot push the pipeline
+# repo, and an unpushed report commit would diverge this checkout and wedge the
+# worker-tick `git pull --ff-only` self-update. Reports stay on disk untracked.
+/usr/local/bin/bun run src/cli/main.ts run incremental --data-repo {{ bg_laws_root }}/data --live --no-commit-report
 rc=$?
 /usr/local/bin/bun run src/cli/main.ts admin build --data-repo {{ bg_laws_root }}/data
 case $rc in 0|2|3) exit 0;; *) exit $rc;; esac
