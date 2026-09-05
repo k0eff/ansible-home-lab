@@ -1,0 +1,34 @@
+---
+# Homebrew packages for the operator's Mac.
+#
+# The `packages` role next door is apt and runs against the Linux VMs; this is
+# its counterpart for the laptop, kept separate rather than branched on
+# ansible_os_family so neither file has to grow a conditional around every task.
+#
+# Scope, deliberately narrow: only tooling that something in this estate has
+# actually needed and failed without. A general-purpose "developer machine
+# setup" role rots, because nobody notices when an entry stops being used.
+
+- name: Ensure Homebrew is present
+  ansible.builtin.command: brew --version
+  register: mac_packages_brew
+  changed_when: false
+  failed_when: mac_packages_brew.rc != 0
+
+# Document tooling.
+#
+# WHY: imotbgScraper2026's architecture and metrics audits produce PDF reports
+# into docs/. On 2026-09-05 the machine had none of pandoc, wkhtmltopdf,
+# weasyprint, prince or typst, so the only route to a PDF was headless Chrome's
+# --print-to-pdf. That works for a hand-written HTML page and nothing else: it
+# cannot take Markdown, and every report would have had to be authored twice.
+#
+# pandoc converts; typst renders. typst rather than a TeX distribution on
+# purpose — basictex is ~500 MB and MacTeX several GB, where typst is 45 MB and
+# pandoc 3.x drives it directly via --pdf-engine=typst.
+- name: Install document tooling
+  community.general.homebrew:
+    name:
+      - pandoc
+      - typst
+    state: present

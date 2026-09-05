@@ -6,5 +6,6 @@
   become: false
   gather_facts: true
   roles:
+    - mac-packages
     - vscode-mcp
     - continue-config
