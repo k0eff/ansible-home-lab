@@ -1,0 +1,12 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Remount the Krasi share
+  # Credentials or options changed, so the running mount no longer matches what is
+  # declared. Restarting a .mount unit is an unmount followed by a mount.
+  ansible.builtin.systemd_service:
+    name: "{{ nasdedup_mount_unit }}"
+    state: restarted
+    daemon_reload: true

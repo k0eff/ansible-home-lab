@@ -1,0 +1,34 @@
+# Managed by ansible (roles/nasdedup).
+[Unit]
+Description=Duplicate scan of the QNAP Krasi share
+After=network-online.target {{ nasdedup_mount_unit }}
+Wants=network-online.target
+Requires={{ nasdedup_mount_unit }}
+# Refuses to start unless the share is mounted; the scanner checks this too, and
+# checks that it is read-only before it touches anything.
+ConditionPathIsMountPoint={{ nasdedup_mount }}
+
+[Service]
+Type=simple
+User={{ nasdedup_user }}
+WorkingDirectory={{ nasdedup_root }}
+Environment=NASDEDUP_ROOT={{ nasdedup_mount }}
+Environment=NASDEDUP_STATE={{ nasdedup_state }}
+Environment=NASDEDUP_WORKERS={{ nasdedup_workers }}
+Environment=NASDEDUP_TIER3_WORKERS={{ nasdedup_tier3_workers }}
+Environment=NASDEDUP_LAT_PAUSE_FACTOR=3.0
+Environment=NASDEDUP_LAT_SAMPLE=15
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 {{ nasdedup_root }}/nasdedup.py run
+# Yields to everything else on the box. Over CIFS the I/O priority means little —
+# the latency probe inside the scanner is what actually holds it back.
+Nice=19
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle
+Restart=on-failure
+RestartSec=300
+StandardOutput=append:{{ nasdedup_state }}/scan.log
+StandardError=append:{{ nasdedup_state }}/scan.log
+
+[Install]
+WantedBy=multi-user.target

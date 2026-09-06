@@ -24,6 +24,10 @@
   # so it can be applied alone: ... playbook-index.yaml -l ops --tags bg_laws
   - role: bg-laws
     tags: [bg_laws]
+  # The Krasi share mount and the duplicate scan that reads it. Tag-scoped so it can
+  # be applied alone: ... playbook-index.yaml -l ops --tags nasdedup
+  - role: nasdedup
+    tags: [nasdedup]
 
 
 - name: Disk storage setup

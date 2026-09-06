@@ -1,0 +1,9 @@
+# Managed by ansible (roles/nasdedup).
+[Unit]
+Description=Resume the duplicate scan once the share is mounted
+
+[Service]
+Type=oneshot
+# Idempotent: a no-op if the scan is already running, and blocked by the service's own
+# ConditionPathIsMountPoint if the share is not mounted. So it costs nothing to fire.
+ExecStart=/usr/bin/systemctl start nasdedup.service

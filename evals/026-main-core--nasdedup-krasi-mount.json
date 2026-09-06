@@ -1,0 +1,24 @@
+{
+  "id": "026",
+  "branch": "main",
+  "name": "core--nasdedup-krasi-mount",
+  "category": "core",
+  "description": "Declares the QNAP Krasi share mount and the duplicate-scan runtime on vm700 in ansible, which until now existed only as hand-made state. cifs-utils was installed by hand, the read-only CIFS mount of //nas.local.koeff.com/Krasi on /mnt/krasi was made interactively with the credential typed on the command line and stored nowhere, and /opt/nasdedup plus its three systemd units were copied in by hand. The host rebuild of 2026-09-05 21:31 destroyed all of it except /opt/nasdedup itself: the mount was gone, the scan could not resume, and ten hours of a running perceptual verification died with the machine. The role makes every piece declarative: cifs-utils, a 0600 root-owned credentials file rendered from protected group_vars, a systemd mnt-krasi.mount unit enabled at boot so the share returns without a human, the scanner and the analysis scripts under /opt/nasdedup, and the nasdedup service plus its resume timer. The mount is read-only by construction (ro in the unit options) because every safety argument for the scan rests on the share being unwritable from this host.",
+  "implementation": {
+    "file": "roles/nasdedup/tasks/main.yaml",
+    "change": "New role nasdedup (tasks, defaults, templates for the credentials file, mnt-krasi.mount, nasdedup.service, nasdedup-resume.service and .timer; files for nasdedup.py and the analysis scripts), wired into the ops play of playbook-index.yaml under tag nasdedup. Credentials come from nas_smb_user / nas_smb_password in protected/inventories/group_vars/all.yaml and never appear in this repo."
+  },
+  "validation": {
+    "type": "live",
+    "checks": [
+      "MEASURED 2026-09-06: ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml -l ops --tags nasdedup against vm700 -> ok=17 changed=7 failed=0; a second run immediately after -> ok=15 changed=0, so the role is idempotent",
+      "MEASURED 2026-09-06: findmnt -no SOURCE,FSTYPE,OPTIONS --target /mnt/krasi -> '//nas.local.koeff.com/Krasi cifs ro,relatime,vers=3.0,...,uid=1000,forceuid,gid=1000,forcegid,...,serverino,...,actimeo=60' — read-only, serverino present (hard links stay recognisable), mounted as the koeffuser uid",
+      "MEASURED 2026-09-06: touch /mnt/krasi/.wtest -> \"cannot touch '/mnt/krasi/.wtest': Read-only file system\", and the file does not exist afterwards. The role also asserts this itself and fails the play if the share ever comes back writable",
+      "MEASURED 2026-09-06: 14 directories readable under /mnt/krasi (backup, Candy, for-review, install, the sparsebundle, ...), so the read-only account can still see everything the scan needs",
+      "MEASURED 2026-09-06: systemctl is-enabled -> mnt-krasi.mount enabled, nasdedup.service disabled, nasdedup-resume.timer enabled; systemctl is-active mnt-krasi.mount -> active. The mount now returns on its own after a reboot, which is the failure this role exists to close",
+      "MEASURED 2026-09-06: /etc/nasdedup-krasi.cred is 600 root:root; its values come from nas_smb_user / nas_smb_password in protected/inventories/group_vars/all.yaml and appear nowhere in this repository",
+      "KNOWN LIMIT: the reboot recovery is verified by unit state (enabled) and by a handler-driven remount cycle, not by an actual reboot of vm700 — rebooting the host would stop every container on it and was not warranted for this change"
+    ]
+  },
+  "status": "pass"
+}

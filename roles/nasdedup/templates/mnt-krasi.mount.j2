@@ -1,0 +1,18 @@
+# Managed by ansible (roles/nasdedup). Unit name must match the mount path.
+#
+# Enabled at boot, which is the whole point: the previous mount was interactive, so
+# the 2026-09-05 rebuild left the share unmounted and the scan unable to resume.
+[Unit]
+Description=QNAP {{ nasdedup_share }} (read-only)
+After=network-online.target
+Wants=network-online.target
+
+[Mount]
+What={{ nasdedup_share }}
+Where={{ nasdedup_mount }}
+Type=cifs
+Options=credentials={{ nasdedup_cred_file }},{{ nasdedup_cifs_options }},uid={{ nasdedup_user }},gid={{ nasdedup_user }},_netdev
+TimeoutSec=30
+
+[Install]
+WantedBy=multi-user.target

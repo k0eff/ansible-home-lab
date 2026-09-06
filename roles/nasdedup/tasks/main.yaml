@@ -1,0 +1,133 @@
+---
+# The Krasi share and the duplicate scan that reads it.
+#
+# All of this used to be hand-made: cifs-utils installed ad hoc, the mount typed at a
+# shell with the password on the command line, /opt/nasdedup copied in with scp. The
+# 2026-09-05 rebuild of vm700 wiped every part of it that was not a file under /opt,
+# and the scan had no share to read until a human came back. Hence this role.
+
+- name: Install the CIFS client
+  ansible.builtin.apt:
+    pkg:
+      - cifs-utils
+    state: present
+    update_cache: true
+
+- name: Refuse to render an empty credential
+  # A missing variable would otherwise produce a valid-looking file with an empty
+  # password, and the mount would fail at boot with an authentication error that
+  # says nothing about the real cause.
+  ansible.builtin.assert:
+    that:
+      - nas_smb_user | default('') | length > 0
+      - nas_smb_password | default('') | length > 0
+    fail_msg: >-
+      nas_smb_user / nas_smb_password are not set. They belong in
+      protected/inventories/group_vars/all.yaml, never in this repository.
+
+- name: Install the share credentials
+  ansible.builtin.template:
+    src: nasdedup-krasi.cred.j2
+    dest: "{{ nasdedup_cred_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Remount the Krasi share
+
+- name: Ensure the mount point
+  ansible.builtin.file:
+    path: "{{ nasdedup_mount }}"
+    state: directory
+    mode: "0755"
+
+- name: Install the mount unit
+  ansible.builtin.template:
+    src: mnt-krasi.mount.j2
+    dest: "/etc/systemd/system/{{ nasdedup_mount_unit }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Remount the Krasi share
+
+- name: Enable and start the mount
+  ansible.builtin.systemd_service:
+    name: "{{ nasdedup_mount_unit }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Verify the share is mounted read-only
+  # The scan's entire safety case is that this host cannot write to a share with no
+  # backup. If that ever stops being true, the run must fail here and not later.
+  ansible.builtin.command:
+    cmd: findmnt -no OPTIONS --target {{ nasdedup_mount }}
+  register: nasdedup_mount_opts
+  changed_when: false
+
+- name: Fail if the share came back writable
+  ansible.builtin.assert:
+    that:
+      - "'ro' in nasdedup_mount_opts.stdout.split(',')"
+    fail_msg: >-
+      {{ nasdedup_mount }} is mounted {{ nasdedup_mount_opts.stdout }} — expected ro.
+      Refusing to continue: the Krasi share has no backup anywhere.
+
+- name: Ensure the nasdedup directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ nasdedup_user }}"
+    group: "{{ nasdedup_user }}"
+    mode: "0755"
+  loop:
+    - "{{ nasdedup_root }}"
+    - "{{ nasdedup_state }}"
+
+- name: Deploy the scanner and the analysis scripts
+  # The analysis tools ship with the scanner because they were lost with it: they
+  # lived only in /tmp, and the rebuild took ten hours of perceptual verification
+  # with them.
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ nasdedup_root }}/{{ item }}"
+    owner: "{{ nasdedup_user }}"
+    group: "{{ nasdedup_user }}"
+    mode: "0755"
+  loop:
+    - nasdedup.py
+    - verify_gphotos.py
+    - fingerprint_video.py
+    - analyze_exported.py
+    - containment.py
+    - dense_hash.py
+    - audio_match.py
+    - build_quarantine.py
+    - validate_quarantine.py
+
+- name: Install the scan units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - nasdedup.service
+    - nasdedup-resume.service
+    - nasdedup-resume.timer
+  notify: Reload systemd
+
+- name: Set the scan service's boot state
+  # Disabled by default: the inventory pass is finished, and a service that starts
+  # itself on every boot would re-read four terabytes for nothing.
+  ansible.builtin.systemd_service:
+    name: nasdedup.service
+    enabled: "{{ nasdedup_service_enabled }}"
+    daemon_reload: true
+
+- name: Enable the resume timer
+  ansible.builtin.systemd_service:
+    name: nasdedup-resume.timer
+    enabled: true
+    state: started
+    daemon_reload: true

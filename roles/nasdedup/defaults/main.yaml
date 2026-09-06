@@ -1,0 +1,38 @@
+---
+# Duplicate scan of the QNAP Krasi share, and the mount it cannot run without.
+#
+# Everything here existed only as hand-made state until the vm700 rebuild of
+# 2026-09-05 destroyed it. The mount in particular was made interactively with the
+# password typed on the command line, so a reboot left the scanner with nothing to
+# read and no way to get it back without a human.
+
+nasdedup_user: koeffuser
+nasdedup_root: /opt/nasdedup
+nasdedup_state: /opt/nasdedup/state
+
+# The share. NFS is deliberately not used here: the owner grants NFS for Multimedia
+# (see /etc/fstab) but not for Krasi, so this one goes over SMB with an account that
+# can only read.
+nasdedup_mount: /mnt/krasi
+nasdedup_share: //nas.local.koeff.com/Krasi
+nasdedup_cred_file: /etc/nasdedup-krasi.cred
+
+# `ro` is not a preference. The scan reads a share that has no backup anywhere, and
+# every safety argument made about it rests on this host being unable to write there.
+# serverino keeps CIFS inode numbers stable, which is what lets the scanner recognise
+# hard links instead of hashing the same bytes twice.
+nasdedup_cifs_options: "ro,vers=3.0,serverino,iocharset=utf8,actimeo=60"
+
+# Measured on this host: 1 thread 39 MB/s, 2 threads 42, 4 threads 47, 8 threads 52
+# on cold data. Past four the gain is small and the NAS starts queueing.
+nasdedup_workers: 8
+nasdedup_tier3_workers: 4
+
+# The inventory scan is finished; the service stays disabled unless someone asks for
+# another pass. The resume timer is harmless either way — it only ever starts a unit
+# that refuses to run without the mount.
+nasdedup_service_enabled: false
+
+# systemd names a mount unit after its path: /mnt/krasi -> mnt-krasi.mount. Derived
+# rather than written twice, so the two can never drift apart.
+nasdedup_mount_unit: "{{ nasdedup_mount | regex_replace('^/', '') | regex_replace('/', '-') }}.mount"

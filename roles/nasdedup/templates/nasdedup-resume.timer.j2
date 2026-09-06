@@ -1,0 +1,13 @@
+# Managed by ansible (roles/nasdedup).
+[Unit]
+Description=Keep trying to resume the duplicate scan
+
+[Timer]
+# The mount is declarative now, so this is no longer the thing that rescues a reboot —
+# it is the thing that rescues a mount that came back late, or dropped and returned.
+# Nothing is lost either way: scan state lives in SQLite and resumes where it stopped.
+OnBootSec=3min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
