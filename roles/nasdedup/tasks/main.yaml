@@ -96,6 +96,7 @@
   loop:
     - nasdedup.py
     - verify_gphotos.py
+    - build_pairs.py
     - fingerprint_video.py
     - analyze_exported.py
     - containment.py
