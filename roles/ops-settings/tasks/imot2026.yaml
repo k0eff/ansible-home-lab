@@ -165,6 +165,76 @@
       or override imot2026_library_host_path.
   when: imot2026_enabled | bool
 
+- name: Count library objects the app uid cannot read
+  # Every imot2026-* service runs as uid 10001 and the shard directories under
+  # the library are mode 0770, so a directory created under any other uid is
+  # unreadable AND unwritable to the app for good. That happened on 2026-09-05:
+  # six shard directories were created as uid 1000 (the base image's own "bun"
+  # user, which does not exist on this host) by a container generation that had
+  # no `user:` set. The transcode worker then hit EACCES renaming its output
+  # into one of them, caught the error, retried the SAME item on the next cycle,
+  # and made no further progress for 36 hours — with restarts=0 and the
+  # container reporting Up the whole time, so nothing external could see it.
+  # This finds them by uid rather than by name because the offending uid has no
+  # passwd entry here; `find -user` would fail outright. It is bounded to the
+  # shard directories at depth 2 rather than walking the whole corpus: the
+  # library lives on an NFS mount where every stat is a round trip, and an
+  # unbounded walk of ~66k shards plus their contents does not finish. Files
+  # need no separate search — a file can only carry the wrong uid if its shard
+  # directory does, because 0770 stops the app writing into a directory it does
+  # not own, so `chown -R` on the directories below covers them.
+  ansible.builtin.shell:
+    cmd: >-
+      find {{ imot2026_library_host_path }}/library/images/sha256
+      -mindepth 2 -maxdepth 2 -type d ! -uid {{ imot2026_app_uid }}
+      -printf 'x' | wc -c
+  register: imot2026_library_alien_owner
+  changed_when: false
+  # Read-only, so it must also run under --check; otherwise the repair task
+  # below has no registered count and a dry run reports nothing to do when
+  # there is.
+  check_mode: false
+  become: true
+  when: imot2026_enabled | bool
+  tags:
+    - imot2026_library_perms
+
+- name: Restore app ownership of library objects written under a foreign uid
+  # chown only, never a delete: the payload in these directories is fetched
+  # media that is expensive to re-acquire. Idempotent by construction — the
+  # count above returns 0 on every later run and this task is skipped.
+  ansible.builtin.shell:
+    cmd: >-
+      find {{ imot2026_library_host_path }}/library/images/sha256
+      -mindepth 2 -maxdepth 2 -type d ! -uid {{ imot2026_app_uid }}
+      -exec chown -R {{ imot2026_app_uid }}:{{ imot2026_app_gid }} {} +
+  become: true
+  when:
+    - imot2026_enabled | bool
+    - imot2026_library_alien_owner.stdout | default('0') | int > 0
+  tags:
+    - imot2026_library_perms
+
+- name: Report the library ownership repair
+  # Worded from the count, not from the chown, and explicitly split by check
+  # mode: the repair task above is a shell task and so does not run under
+  # --check, and a message claiming it did would be a false green.
+  ansible.builtin.debug:
+    msg: >-
+      {{ imot2026_library_alien_owner.stdout | default('0') | int }} shard
+      director{{ 'y' if (imot2026_library_alien_owner.stdout | default('0') | int) == 1 else 'ies' }}
+      under {{ imot2026_library_host_path }}/library/images/sha256
+      {{ 'are not' if ansible_check_mode else 'were not' }} owned by uid
+      {{ imot2026_app_uid }}
+      {{ 'and would be chowned back to it (check mode: nothing changed).'
+         if ansible_check_mode
+         else 'and have been chowned back to it, contents included.' }}
+  when:
+    - imot2026_enabled | bool
+    - imot2026_library_alien_owner.stdout | default('0') | int > 0
+  tags:
+    - imot2026_library_perms
+
 # --- build (never via compose) ------------------------------------------------
 
 - name: Determine the imotbgScraper2026 commit to build

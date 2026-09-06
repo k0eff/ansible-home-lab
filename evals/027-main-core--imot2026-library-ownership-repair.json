@@ -1,0 +1,42 @@
+{
+  "id": "027-main-core--imot2026-library-ownership-repair",
+  "branch": "main",
+  "name": "imot2026 library shard directories are owned by the app uid",
+  "category": "core",
+  "description": "Six shard directories under the imot2026 NAS library were created as uid 1000 (the base image's own 'bun' user, which has no passwd entry on vm700) by a container generation that set no 'user:'. Shard directories are mode 0770, so the app uid 10001 could neither read nor write them. The media transcode worker hit EACCES renaming its output into one, caught the error, retried the SAME item every 60s, and made no further progress for 36 hours -- with RestartCount 0 and the container reporting Up throughout, so nothing external could see the stall. This adds an idempotent Ansible repair under its own tag so it can run without redeploying the stack.",
+  "implementation": {
+    "file": "roles/ops-settings/tasks/imot2026.yaml",
+    "changes": [
+      "Count shard directories under the library whose uid is not imot2026_app_uid; bounded to -mindepth 2 -maxdepth 2 because the library is an NFS mount where an unbounded walk of ~66k shards does not finish",
+      "chown -R those directories back to the app uid/gid; files need no separate search because 0770 means a wrongly-owned file can only exist inside a wrongly-owned directory",
+      "check_mode: false on the read-only count so --check reports the real number instead of skipping",
+      "Report task worded from the count and split by ansible_check_mode, so a dry run cannot claim a repair that did not happen",
+      "New defaults imot2026_app_uid / imot2026_app_gid in roles/ops-settings/defaults/main.yaml, replacing the bare 10001 literals",
+      "Own tag imot2026_library_perms so the repair runs without a full stack deploy"
+    ]
+  },
+  "validation": {
+    "type": "live",
+    "checks": [
+      "ansible-playbook ... --tags imot2026_library_perms -e imot2026_enabled=true --check reports the real count and states nothing changed",
+      "First real run: changed=1, message '6 shard directories ... have been chowned back to it, contents included.'",
+      "Second run immediately after: changed=0, repair task skipped -- idempotent",
+      "docker exec imot2026-media-transcode ls -ld on the repaired directory shows imot2026:imot2026, and a touch probe returns WRITE_OK",
+      "docker logs --since <chown time> imot2026-media-transcode | grep -c EACCES == 0, against a continuous EACCES every 60s for the 36 hours before"
+    ]
+  },
+  "status": "pass",
+  "evidence": {
+    "liveActions": [
+      "ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml -l ops --tags imot2026_library_perms -e imot2026_enabled=true  =>  vm700 : ok=5 changed=1",
+      "chown -R 10001:10001 applied to 6 shard directories under /mnt/nas/imot2026/library/images/sha256 (6b/c2 72/ee e0/56 3d/ac 36/d0 5c/d2), 12 objects total. Reversible; no delete.",
+      "Idempotence re-run  =>  vm700 : ok=3 changed=0 skipped=2",
+      "Last EACCES 2026-09-06T20:24:22Z; docker logs --since 20:26 | grep -c EACCES  =>  0"
+    ],
+    "notDone": [
+      "215 leaked .partial files (~20 MB) remain in /library/work from the retry loop -- deleting them is a live delete and needs the owner's approval",
+      "The worker still retries a permanently-failing item forever with no attempt counter or quarantine. That is T-1020's real defect and is not fixed here.",
+      "Nothing prevents a future container generation from writing under the wrong uid again; the compose 'user:' setting was not audited."
+    ]
+  }
+}

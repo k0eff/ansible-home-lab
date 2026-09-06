@@ -503,6 +503,12 @@ imot2026_web_base_url: "https://{{ caddy_host_imot }}"
 # mount_path differs. Not currently mounted on vm700 (verified 2026-08-22).
 imot2026_library_host_path: /mnt/nas/imot2026
 
+# The uid/gid every imot2026-* container runs as. The shard directories under
+# the library are mode 0770, so anything written under a different uid becomes
+# permanently unreadable to the app; tasks/imot2026.yaml repairs that.
+imot2026_app_uid: "10001"
+imot2026_app_gid: "10001"
+
 # Local media cache on vm700's big data disk (/dev/sdb via /var/lib/docker-data).
 # Migrated off root disk (/dev/sda2) to prevent / from filling up.
 imot2026_media_cache_host_path: /var/lib/docker-data/imot2026-media-cache
