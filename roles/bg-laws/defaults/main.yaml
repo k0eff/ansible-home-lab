@@ -35,6 +35,13 @@ bg_laws_cron_hour: "6"
 # protected/inventories/group_vars/all.yaml, never here.
 bg_laws_openrouter_api_key: ""
 
+# Opportunistic 5th provider (lowest rotation priority): the operator's Mac runs OmniRoute.app,
+# reachable from vm700's own 127.0.0.1:20128 via an operator-maintained SSH reverse tunnel
+# whenever the Mac is awake and the app+tunnel are up. Referenced-but-empty here for the same
+# reason as bg_laws_openrouter_api_key above — the real value lives only in
+# protected/inventories/group_vars/all.yaml.
+bg_laws_omniroute_api_key: ""
+
 # Queue worker on vm700 (§4.4 amended, deviation #76): systemd timer →
 # one `worker once` pass as bglaws, every 5 minutes, remote: null (the
 # queue is local — no rsync), LLM via the agy CLI on the bglaws OAuth
