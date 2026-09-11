@@ -23,8 +23,9 @@
       "MEASURED 2026-08-30: playbook -l ops --tags bg_laws green (ok=32 changed=5 failed=0 first run; ok=32 changed=1 after the 300s-timeout bump); systemctl list-timers shows bg-laws-worker.timer -> bg-laws-worker.service with a 5-min next fire; worker.json on vm700 carries remote: null + queueDir /opt/bg-laws/var/queue + requestTimeoutMs 300000",
       "MEASURED 2026-08-30: full live pass on the agy OAuth quota — /opt/bg-laws/logs/worker.log: 'op=providers enabled=agy-cli' then 'op=pass selected=50 done=43 failed=7 stopped=null exit=0'; var/queue/done grew 66 -> 133 across the day's passes while the backfill kept enqueueing (pending ~582); remaining failures are acceptance rejections (needs-review path) plus pre-existing records; the next timer-fired pass started itself while the previous one was being read",
       "MEASURED 2026-08-30: xrdp already present on the host (task ok, not changed) — ad-hoc install now declared; the tick's pull is guarded by var/run.lock and correctly skips while the live backfill (1d+ elapsed, holds the lock) runs",
-      "KNOWN LIMIT: while the backfill holds var/run.lock the worker tick cannot self-update the pipeline tree (spec 80 §7) — the two fixes of 2026-08-30 (authProbe path, no-tools preamble) were pulled by hand as bglaws (git pull --ff-only, content-only, running processes unaffected); once the backfill exits, ticks self-update again. Also found and cleared: stale STAGED report files in /opt/bg-laws/pipeline made every ff-only merge refuse silently — unstaged with git reset, files kept on disk"
+      "KNOWN LIMIT: while the backfill holds var/run.lock the worker tick cannot self-update the pipeline tree (spec 80 §7) — the two fixes of 2026-08-30 (authProbe path, no-tools preamble) were pulled by hand as bglaws (git pull --ff-only, content-only, running processes unaffected); once the backfill exits, ticks self-update again. Also found and cleared: stale STAGED report files in /opt/bg-laws/pipeline made every ff-only merge refuse silently — unstaged with git reset, files kept on disk",
+      "2026-09-12: sweep.sh + start-sweep.sh templated 0755 (convergence loop: resume-wip --all --fix-pipeline until main unchanged and queue empty); tmux session bg-laws-sweep started live"
     ]
   },
-  "status": "pass"
+  "status": "pending"
 }

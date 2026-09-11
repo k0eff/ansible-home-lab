@@ -1,0 +1,27 @@
+#!/bin/sh
+# Operator-started convergence loop (ticket 43): `run resume-wip --all --fix-pipeline` over every
+# registered act, pass after pass, while the worker timer drains the LLM queue in between. Exits
+# when a pass moves nothing on main AND the LLM queue is empty — the wip acts that remain then need
+# a human (needs-review / mismatch), not another pass. Use start-sweep.sh; shares run.lock with
+# backfill.sh/incremental.sh (blocking flock), so the three runners never overlap.
+set -a; . {{ bg_laws_root }}/env; set +a
+cd {{ bg_laws_root }}/pipeline
+LOG={{ bg_laws_root }}/logs/sweep.log
+pass=0
+while :; do
+  pass=$((pass + 1))
+  before=$(git -C {{ bg_laws_root }}/data rev-parse main)
+  echo "== sweep pass $pass start $(date -u +%FT%TZ) main=$before" >> "$LOG"
+  flock {{ bg_laws_root }}/var/run.lock \
+    /usr/local/bin/bun run src/cli/main.ts run resume-wip --all --data-repo {{ bg_laws_root }}/data \
+    --live --max-requests 100000 --fix-pipeline --no-commit-report >> "$LOG" 2>&1
+  rc=$?
+  after=$(git -C {{ bg_laws_root }}/data rev-parse main)
+  pending=$(ls {{ bg_laws_root }}/var/queue/pending 2>/dev/null | wc -l)
+  echo "== sweep pass $pass end $(date -u +%FT%TZ) exit=$rc main=$after pending=$pending" >> "$LOG"
+  if [ "$before" = "$after" ] && [ "$pending" -eq 0 ]; then
+    echo "== sweep converged after $pass passes $(date -u +%FT%TZ)" >> "$LOG"
+    exit 0
+  fi
+  sleep 900
+done

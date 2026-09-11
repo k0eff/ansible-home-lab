@@ -1,0 +1,9 @@
+#!/bin/sh
+# Launcher: the convergence sweep in a detached tmux session (like start-backfill.sh).
+# Run as {{ bg_laws_user }}:  sudo -u {{ bg_laws_user }} {{ bg_laws_root }}/start-sweep.sh
+if tmux has-session -t bg-laws-sweep 2>/dev/null; then
+  echo "tmux session 'bg-laws-sweep' already exists — sweep already running?" >&2
+  exit 1
+fi
+tmux new-session -d -s bg-laws-sweep '{{ bg_laws_root }}/sweep.sh'
+echo "sweep started in tmux session 'bg-laws-sweep'; log: {{ bg_laws_root }}/logs/sweep.log"
