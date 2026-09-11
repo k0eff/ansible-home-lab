@@ -27,5 +27,5 @@
       "2026-09-12: sweep.sh + start-sweep.sh templated 0755 (convergence loop: resume-wip --all --fix-pipeline until main unchanged and queue empty); tmux session bg-laws-sweep started live"
     ]
   },
-  "status": "pending"
+  "status": "pass"
 }
