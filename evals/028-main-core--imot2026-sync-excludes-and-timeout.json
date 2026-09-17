@@ -1,0 +1,23 @@
+{
+  "id": "028-main-core--imot2026-sync-excludes-and-timeout",
+  "branch": "main",
+  "name": "imot2026 deploy sync never copies local secrets or workflow state, and fails fast on a stalled connection",
+  "category": "security",
+  "description": "The deploy's rsync of the controller checkout to vm700 (roles/ops-settings/tasks/imot2026.yaml, 'Sync the imotbgScraper2026 working tree to vm700') excluded .git, node_modules, coverage, work, protected and .claude, but not the gitignored .secrets/ (a local session env file), .state/ (243 MB of workflow suite logs), .scratch-local/, .wf/ or reports/. On 2026-09-17 .secrets/ was found copied to /opt/imot2026/src-tree/.secrets on vm700 (not in the image: the Dockerfile copies named directories only). The same deploy spent about two hours in this sync step with no timeout (00:20-02:26Z) while the image build took 1m07s.",
+  "implementation": {
+    "file": "roles/ops-settings/tasks/imot2026.yaml",
+    "changes": [
+      "rsync_opts gain --exclude for .secrets, .state, .scratch-local, .wf and reports, and --timeout=300 so a stalled transfer fails instead of hanging the deploy"
+    ]
+  },
+  "validation": {
+    "type": "manual",
+    "checks": [
+      "`ansible-playbook -i protected/inventories/inventory-main.yaml playbook-index.yaml --syntax-check` -> 'playbook: playbook-index.yaml' (ok)",
+      "rsync --dry-run with the exact new options from the controller checkout into an empty directory: 3,625 items; 0 under .secrets, /.state, /.wf, /reports, /.scratch-local; docs/reports 9, web/src 305, src/dedup/perceptual.ts present",
+      "same dry run against vm700:/opt/imot2026/src-tree/: exit 0, nothing to transfer (tree already current), nothing deleted",
+      "PENDING live: the next imot2026 deploy's sync step completes in minutes"
+    ]
+  },
+  "status": "pending"
+}

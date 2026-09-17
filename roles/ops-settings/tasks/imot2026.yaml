@@ -277,6 +277,20 @@
       # session with fifteen of them open would rsync the tree sixteen times
       # and build an image containing fifteen stale copies of itself.
       - "--exclude=.claude"
+      # Gitignored local state that is not part of the app. .secrets holds a
+      # local session file and was found copied to src-tree on 2026-09-17;
+      # .state carries hundreds of MB of workflow suite logs. .secrets stays
+      # unanchored (never ship one from any depth); the rest are anchored to
+      # the repo root with a leading slash, because a bare "reports" would
+      # also drop docs/reports.
+      - "--exclude=.secrets"
+      - "--exclude=/.state"
+      - "--exclude=/.scratch-local"
+      - "--exclude=/.wf"
+      - "--exclude=/reports"
+      # A stalled connection once held this step for two hours while the
+      # build it feeds took one minute; fail instead of waiting forever.
+      - "--timeout=300"
   when: imot2026_enabled | bool
 
 - name: Build the imot2026-app image, tagged with the commit
