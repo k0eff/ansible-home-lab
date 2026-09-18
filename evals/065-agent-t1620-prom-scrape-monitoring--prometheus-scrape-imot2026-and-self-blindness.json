@@ -1,0 +1,32 @@
+{
+  "id": "065",
+  "branch": "agent/t1620-prom-scrape",
+  "name": "monitoring--prometheus-scrape-imot2026-and-self-blindness",
+  "category": "monitoring",
+  "description": "koeff-ai-stack-prometheus ran Up 12 days (healthy) with activeTargets:[] and rules groups:[] — it scraped nothing, not even itself, and its own healthcheck (/-/healthy) reported green the whole time because that endpoint only answers 'the process is alive', never 'this process is doing its job'. This eval covers the prepared vertical slice: one real imot2026 scrape target reachable over the imot2026-net network, prometheus self-scrape, and native alerting rules that fire when prometheus has no targets at all — the self-blindness check, which is the actual defect. PREPARED ONLY: nothing here has been applied to vm700 by this task; the orchestrator runs the playbook.",
+  "implementation": {
+    "file": "roles/ops-settings/templates/headroom/prometheus.yml.j2",
+    "changes": [
+      "roles/ops-settings/templates/headroom/prometheus.yml.j2 — replaced `scrape_configs: []` with two jobs: `prometheus` (127.0.0.1:9090, so `up` exists at all) and `imot2026` (imot2026-web:9464/metrics, the port src/metrics/server.ts binds and src/main.ts starts before service.start()). Added rule_files pointing at the mounted self-blindness rules.",
+      "roles/ops-settings/templates/headroom/prometheus-rules.yml.j2 — NEW. Native Prometheus alerting rules: PrometheusHasNoScrapeTargets (absent(up)) fires on exactly the observed 2026-09-18 state; PrometheusHasNoImot2026Targets (absent(up{job=\"imot2026\"})) fires if the job is dropped or renamed; Imot2026TargetDown (up{job=\"imot2026\"} == 0, a plain filtering comparison — deliberately NOT `== bool 0`, which is right for the Grafana rules in imotbgScraper2026 and would page on every healthy target here, because native Prometheus fires one alert per series the expr returns).",
+      "roles/ops-settings/templates/headroom/docker-compose.yml.j2 — prometheus joins the external imot2026-net network in addition to the stack default (grafana reaches it at http://prometheus:9090 over default, so default must stay explicit), and mounts prometheus-rules.yml read-only at /etc/prometheus/rules/self-blindness.yml.",
+      "roles/ops-settings/tasks/headroom.yaml — renders the new prometheus-rules.yml.j2 template alongside prometheus.yml.",
+      "roles/ops-settings/tests/prometheus-self-blindness.test.yml — NEW. promtool unit test: four cases, including the zero-series case that reproduces the observed blindness.",
+      "roles/ops-settings/tests/validate-prometheus.sh — NEW. Runs promtool check config, check rules and test rules in the prom/prometheus container. A guard nobody can run is a guard nobody tested (AGENTS.md)."
+    ]
+  },
+  "validation": {
+    "type": "command",
+    "checks": [
+      "promtool check config on the rendered prometheus.yml exits 0: 'SUCCESS: 1 rule files found' and 'SUCCESS: 3 rules found'",
+      "Every imot2026 service explicitly attaches to imot2026-net (28 references in imotbgScraper2026/deploy/docker-compose.yml.j2, declared with an explicit `name: imot2026-net`), so the host network is really called imot2026-net and `external: true` resolves — checked rather than assumed",
+      "promtool check rules on prometheus-rules.yml.j2 exits 0",
+      "promtool test rules on prometheus-self-blindness.test.yml exits 0 — the zero-input case must fire PrometheusHasNoScrapeTargets, and the healthy case must fire nothing",
+      "The scrape target host:port matches the real endpoint in imotbgScraper2026 (src/metrics/server.ts port default 9464, path /metrics; src/main.ts honours IMOT2026_METRICS_PORT, which deploy/docker-compose.yml.j2 does not set, so 9464 is what runs)",
+      "The healthcheck's grep logic was executed, not read: in prom/prometheus:latest, the empty-target JSON matches (container goes unhealthy) and the populated JSON does not (container stays healthy)",
+      "docker compose config on the rendered template parses, puts prometheus on both `default` and `imot2026-net`, and folds the CMD-SHELL healthcheck to a single correct line",
+      "NOT VALIDATED BY THIS TASK, by instruction: no ansible-playbook run, no container restart, so no live /api/v1/targets output exists yet. The ledger's acceptance[0] and acceptance[1] (target health \"up\", a range query with more than one sample) can only be met after the orchestrator applies this. This eval's status refers to the prepared artifacts only."
+    ]
+  },
+  "status": "pass"
+}

@@ -1,0 +1,79 @@
+# T-1620 — the self-blindness rules for koeff-ai-stack-prometheus.
+#
+# Why this file exists at all: on 2026-09-18 this prometheus had been Up 12
+# days (healthy) while /api/v1/targets returned activeTargets:[] and
+# /api/v1/rules returned groups:[]. Nothing was wrong with the process, so
+# nothing complained. A monitoring stack that cannot report its own
+# blindness is the defect — a missing target is a louder failure than a
+# down one, because a down target at least produces a sample.
+#
+# NATIVE PROMETHEUS RULES, not Grafana unified-alerting provisioning.
+# imotbgScraper2026/deploy/observability/*.yaml is the other kind (apiVersion
+# 1, datasourceUid: mimir-central, `== bool 0` everywhere) and the two
+# semantics are opposites — do not copy an expr between them:
+#   * Grafana evaluates a condition by VALUE, so a healthy fleet must still
+#     return a sample, hence its `bool` modifier.
+#   * Prometheus fires one alert per series the expr RETURNS, so `bool` here
+#     would return 0 or 1 for EVERY target and page on all of them forever.
+#     Plain `== 0` filters, which is what native rules want.
+#
+# Deliberately no Jinja: rendered verbatim so promtool can check these exact
+# bytes (roles/ops-settings/tests/validate-prometheus.sh).
+
+groups:
+  - name: prometheus-self-blindness
+    interval: 1m
+    rules:
+      # The observed failure, stated directly. `absent()` is the whole point:
+      # it is one of the few functions that returns a sample when its
+      # argument matches NOTHING, so it survives the empty database that
+      # scrape_configs: [] produces. A count()-based version cannot do this
+      # — count() over no series returns no series, and a rule that returns
+      # nothing is a rule that never fires.
+      - alert: PrometheusHasNoScrapeTargets
+        expr: absent(up)
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "Prometheus is scraping nothing at all"
+          description: >-
+            No `up` series exists, so this Prometheus has zero active scrape
+            targets — not even itself. Its own /-/healthy check cannot see
+            this and will keep reporting the container healthy.
+          firstCommand: "curl -s 127.0.0.1:9090/api/v1/targets"
+
+      # One step less total: prometheus still scrapes itself, so `up` exists
+      # and the rule above stays quiet, but the imot2026 job is gone —
+      # removed, renamed, or lost to a bad render of prometheus.yml.
+      - alert: PrometheusHasNoImot2026Targets
+        expr: absent(up{job="imot2026"})
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "Prometheus has no imot2026 scrape targets"
+          description: >-
+            The imot2026 job declares no target, or prometheus.yml was
+            rendered without it. Every imot2026 metric and alert is blind
+            while this is true.
+          firstCommand: "curl -s 127.0.0.1:9090/api/v1/targets | jq -r '.data.activeTargets[].labels.job' | sort -u"
+
+      # The ordinary case, and the only one of the three that most people
+      # would have written unprompted: a declared target that is not
+      # answering. Kept here so the zero-target rules above are not the only
+      # thing standing between a dead exporter and silence.
+      - alert: Imot2026TargetDown
+        expr: up{job="imot2026"} == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "imot2026 scrape target {{ $labels.instance }} is down"
+          description: >-
+            {{ $labels.instance }} ({{ $labels.service }}) did not answer its
+            last scrapes. src/main.ts starts the metrics server before
+            service.start(), so a container that is up but stuck in start()
+            still answers here — a refused connection means the process or
+            the container is gone, not merely wedged.
+          firstCommand: "ssh vm700 docker compose -p imot2026 ps"

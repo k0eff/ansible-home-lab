@@ -25,6 +25,19 @@
     group: root
     mode: "0644"
 
+# T-1620. Separate file rather than rules inlined into prometheus.yml:
+# Prometheus takes alerting rules only through rule_files, and keeping the
+# rules in their own file is what lets roles/ops-settings/tests/
+# validate-prometheus.sh hand them to `promtool check rules` and
+# `promtool test rules` without a render step in between.
+- name: Render Prometheus self-blindness rules
+  ansible.builtin.template:
+    src: headroom/prometheus-rules.yml.j2
+    dest: "{{ ai_stack_dir }}/prometheus-rules.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: Render Grafana datasources
   ansible.builtin.template:
     src: headroom/grafana-datasources.yaml.j2

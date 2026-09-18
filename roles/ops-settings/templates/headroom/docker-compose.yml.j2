@@ -9,12 +9,48 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # T-1620 — the self-blindness rules. /api/v1/rules returned groups:[]
+      # for as long as /api/v1/targets returned activeTargets:[]; this mount
+      # and the rule_files key in prometheus.yml are the two halves of that.
+      - ./prometheus-rules.yml:/etc/prometheus/rules/self-blindness.yml:ro
       - "{{ ai_stack_data_dir }}/prometheus:/prometheus"
+    # T-1620 — prometheus needs a foot in imot2026's network to reach the
+    # metrics ports. imotbgScraper2026/deploy/docker-compose.yml.j2 maps no
+    # `ports:` for 9464 and its own comment forbids adding one ("do not make
+    # it one by adding a port mapping without re-reading this comment"), so
+    # the socket exists only inside the imot2026-net bridge. Joining that
+    # network reads state rather than changing it — no port becomes publicly
+    # reachable and imot2026's compose file is not touched.
+    #
+    # `default` is listed EXPLICITLY and must stay: naming any network on a
+    # service stops compose attaching it to the project default, and grafana
+    # reaches this container at http://prometheus:9090 (grafana-datasources
+    # .yaml.j2) over exactly that default. Dropping it here breaks Grafana.
+    networks:
+      - default
+      - imot2026-net
+    # T-1620 — THIS is the check that was missing, and the reason the outage
+    # lasted 12 days: /-/healthy answers "the process is alive", never "the
+    # process is scraping anything", so an empty target list reported green
+    # forever. The second clause fails the container when Prometheus is
+    # blind. `restart: unless-stopped` does not restart on unhealthy, so a
+    # false positive costs a red tick and nothing else — whereas a false
+    # NEGATIVE is the 12 days this task exists to repay.
+    #
+    # start_period covers config load: targets appear in activeTargets as
+    # soon as the config parses (health "unknown" until the first scrape),
+    # so this does not wait on a scrape, only on startup.
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
-      interval: 10s
-      timeout: 5s
+      test:
+        - CMD-SHELL
+        - >-
+          wget -q -O /dev/null http://localhost:9090/-/healthy || exit 1;
+          wget -q -O - http://localhost:9090/api/v1/targets | grep -q '"activeTargets":\[\]' && exit 1;
+          exit 0
+      interval: 30s
+      timeout: 10s
       retries: 3
+      start_period: 60s
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -37,3 +73,15 @@ services:
       - "{{ ai_stack_data_dir }}/grafana:/var/lib/grafana"
       - ./grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
       - ./grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+
+# T-1620. `external: true` — this network is created and owned by the
+# imot2026 stack (imotbgScraper2026/deploy/docker-compose.yml.j2 declares
+# it as `imot2026-net` with an explicit `name:`), and this stack only
+# attaches to it. Compose will refuse to start koeff-ai-stack if the network
+# does not exist, which is the correct failure: a prometheus that silently
+# came up unable to resolve imot2026-web is the class of quiet failure this
+# whole task is about.
+networks:
+  imot2026-net:
+    name: imot2026-net
+    external: true

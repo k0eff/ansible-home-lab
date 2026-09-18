@@ -1,0 +1,118 @@
+# T-1620 — promtool unit tests for the self-blindness rules.
+#
+# Case 1 is the one that matters: it reproduces the exact 2026-09-18 state
+# (no series at all, because scrape_configs was []) and asserts the rule
+# FIRES. Every other case exists to prove it does not cry wolf, which is the
+# failure mode that would get it muted within a week.
+#
+# Run: roles/ops-settings/tests/validate-prometheus.sh
+
+rule_files:
+  - ../templates/headroom/prometheus-rules.yml.j2
+
+evaluation_interval: 1m
+
+tests:
+  # 1. THE OBSERVED FAILURE. No input series whatsoever — prometheus is
+  #    scraping nothing, not even itself.
+  - interval: 1m
+    input_series: []
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: PrometheusHasNoScrapeTargets
+        exp_alerts: []          # still pending at 4m, `for: 5m`
+      - eval_time: 6m
+        alertname: PrometheusHasNoScrapeTargets
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: "Prometheus is scraping nothing at all"
+              description: "No `up` series exists, so this Prometheus has zero active scrape targets — not even itself. Its own /-/healthy check cannot see this and will keep reporting the container healthy."
+              firstCommand: "curl -s 127.0.0.1:9090/api/v1/targets"
+      # The imot2026-specific rule also fires here, which is correct: no
+      # targets at all is also no imot2026 targets.
+      - eval_time: 11m
+        alertname: PrometheusHasNoImot2026Targets
+        exp_alerts:
+          # `job: imot2026` is not decoration and not copied from a guess:
+          # promtool rejected this block without it. absent() synthesises a
+          # series carrying every EQUALITY matcher from its argument, so the
+          # alert arrives already labelled with the job that went missing —
+          # which is why the description can name it and why a second job
+          # added later gets its own distinct alert rather than merging.
+          - exp_labels:
+              severity: page
+              job: imot2026
+            exp_annotations:
+              summary: "Prometheus has no imot2026 scrape targets"
+              description: "The imot2026 job declares no target, or prometheus.yml was rendered without it. Every imot2026 metric and alert is blind while this is true."
+              firstCommand: "curl -s 127.0.0.1:9090/api/v1/targets | jq -r '.data.activeTargets[].labels.job' | sort -u"
+
+  # 2. Self-scrape alive, imot2026 job gone. The blanket rule must stay
+  #    QUIET and only the job-scoped one may fire.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="prometheus",instance="127.0.0.1:9090"}'
+        values: "1x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: PrometheusHasNoScrapeTargets
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: PrometheusHasNoImot2026Targets
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              job: imot2026
+            exp_annotations:
+              summary: "Prometheus has no imot2026 scrape targets"
+              description: "The imot2026 job declares no target, or prometheus.yml was rendered without it. Every imot2026 metric and alert is blind while this is true."
+              firstCommand: "curl -s 127.0.0.1:9090/api/v1/targets | jq -r '.data.activeTargets[].labels.job' | sort -u"
+
+  # 3. HEALTHY. Both jobs up. Nothing may fire — including Imot2026TargetDown,
+  #    which is the regression guard against someone "fixing" its expr to
+  #    `== bool 0` after reading the Grafana rules in imotbgScraper2026.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="prometheus",instance="127.0.0.1:9090"}'
+        values: "1x20"
+      - series: 'up{job="imot2026",instance="imot2026-web:9464",service="web"}'
+        values: "1x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: PrometheusHasNoScrapeTargets
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: PrometheusHasNoImot2026Targets
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: Imot2026TargetDown
+        exp_alerts: []
+
+  # 4. Declared target present but not answering.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="prometheus",instance="127.0.0.1:9090"}'
+        values: "1x20"
+      - series: 'up{job="imot2026",instance="imot2026-web:9464",service="web"}'
+        values: "0x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: PrometheusHasNoScrapeTargets
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: PrometheusHasNoImot2026Targets
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: Imot2026TargetDown
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              job: imot2026
+              instance: "imot2026-web:9464"
+              service: web
+            exp_annotations:
+              summary: "imot2026 scrape target imot2026-web:9464 is down"
+              description: "imot2026-web:9464 (web) did not answer its last scrapes. src/main.ts starts the metrics server before service.start(), so a container that is up but stuck in start() still answers here — a refused connection means the process or the container is gone, not merely wedged."
+              firstCommand: "ssh vm700 docker compose -p imot2026 ps"

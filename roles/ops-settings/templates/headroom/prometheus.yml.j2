@@ -2,8 +2,70 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
-# koeff-ai-stack's LLM-routing services (litellm, headroom, qdrant, ollama,
-# postgres) were decommissioned — only prometheus + grafana remain from this
-# stack. No scrape targets left to declare; add real ones here if this
-# prometheus instance ever gains something else to monitor.
-scrape_configs: []
+# T-1620. This file said `scrape_configs: []` for 18 days and the container
+# reported healthy for all of them: `curl 127.0.0.1:9090/api/v1/targets` on
+# vm700 returned {"activeTargets":[],"droppedTargets":[]} while `docker ps`
+# showed koeff-ai-stack-prometheus Up 12 days (healthy). The healthcheck in
+# docker-compose.yml.j2 hits /-/healthy, which answers "this process is
+# alive" and can never answer "this process is scraping anything" — so the
+# green tick was correct and useless at the same time. That is the defect
+# this change is really about; the scrape job below is only the first target.
+#
+# Deliberately NO Jinja expressions in this file. It is rendered verbatim,
+# which means roles/ops-settings/tests/validate-prometheus.sh can hand the
+# .j2 itself to promtool and validate the exact bytes that reach the host.
+# Keep it that way — a variable here buys nothing and costs the only
+# check that stands between this file and another silent 18 days.
+
+rule_files:
+  # Mounted by docker-compose.yml.j2 from prometheus-rules.yml. Prometheus
+  # reported groups:[] on /api/v1/rules for the same reason it reported no
+  # targets: this key did not exist.
+  - /etc/prometheus/rules/self-blindness.yml
+
+scrape_configs:
+  # Self-scrape FIRST, and not as a formality. Every self-blindness rule in
+  # prometheus-rules.yml.j2 is written over the `up` series, and `up` only
+  # exists because something is being scraped. A prometheus that scrapes
+  # nothing also evaluates its own health over an empty database — which is
+  # precisely how absent(up) is written to survive: it fires on no data.
+  # 127.0.0.1 rather than the service name: this target must not depend on
+  # the stack's own DNS resolving.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["127.0.0.1:9090"]
+
+  # imot2026 — ONE target, on purpose (ledger acceptance: "ONE vertical
+  # slice, not a stack").
+  #
+  # The endpoint was read out of the source, not assumed:
+  #   src/metrics/server.ts   createMetricsServer() -> Bun.serve({ port:
+  #                           options.port ?? 9464, hostname ?? "0.0.0.0" }),
+  #                           and ROUTES = new Set(["/metrics"]) — one path,
+  #                           404 for anything else, 405 for a mutating verb.
+  #   src/main.ts:113         starts it BEFORE service.start(), so a worker
+  #                           hung inside connect() is still scrapeable; the
+  #                           port comes from IMOT2026_METRICS_PORT if set.
+  #   deploy/docker-compose.yml.j2  never sets IMOT2026_METRICS_PORT, so the
+  #                           9464 default is what actually listens.
+  #
+  # Reachability: that compose maps no `ports:` for 9464 — by design, and its
+  # own comment says not to add one. The socket exists only inside the
+  # imot2026-net bridge. So prometheus joins imot2026-net as an external
+  # network (docker-compose.yml.j2) and addresses the container by name;
+  # imot2026-web's compose service name and container_name are both
+  # "imot2026-web", so the alias resolves either way.
+  #
+  # Widening to the rest of the fleet is a follow-up, and needs care rather
+  # than a longer list: imot2026-{web,scanner,scheduler,listing-consumers,
+  # enricher,notifier,watch,dedup,media-worker,statistics,head-poller} are
+  # long-running, while imot2026-{backfill-detail,image-retention,
+  # token-retention,media-reconcile-sweep} finish and exit — adding those
+  # here would paint permanent red targets and teach everyone to ignore the
+  # alert that this task exists to make meaningful.
+  - job_name: imot2026
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["imot2026-web:9464"]
+        labels:
+          service: web
