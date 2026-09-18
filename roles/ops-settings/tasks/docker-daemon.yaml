@@ -1,7 +1,7 @@
 ---
 # /etc/docker/daemon.json on the ops host.
 #
-# Two settings, and the first one is why this file exists.
+# Three settings, and the first one is why this file exists.
 #
 # --- nofile ------------------------------------------------------------------
 #
@@ -36,6 +36,42 @@
 # restart. Enabling it requires one restart, so the disruption is paid once and
 # never again — which is the whole argument for doing both in the same change.
 #
+# --- log rotation ------------------------------------------------------------
+#
+# json-file, Docker's default driver, has NO size cap unless you give it one.
+# A container's log therefore grows until the disk is full, and nothing in this
+# repo set log-driver, log-opts or a compose `logging:` block anywhere — so
+# every container on this host was writing unbounded.
+#
+# Measured on vm700, 2026-09-18, before this change:
+#
+#   imot2026-mongo   3,492,612,993 B   3.25 GiB   in ONE log file
+#   rc-mongo         3,309,270,617 B   3.08 GiB
+#   caddy-caddy-1      605,793,108 B    578 MiB
+#   mpe-mongo          325,402,253 B    310 MiB
+#   ~7.5 GiB of container logs in total, on a 79 GB root with 55 GB free.
+#
+# 66 containers exist, 43 of them running. So the cap has to bound a per-host
+# total, not just one file:
+#
+#   max-size 50m x max-file 3  =  150 MB ceiling per container
+#   43 running x 150 MB        =~ 6.5 GB worst case for the whole host
+#                                 (stopped containers do not grow)
+#
+# That is ~12% of the free space as a hard ceiling, against the unbounded
+# growth it replaces, and it cuts the worst offender from 3.25 GiB to 150 MB.
+# 50m rather than the 10m that is the usual reflex because this host's
+# incidents — the mongod SIGSEGV above, the midnight Kafka consumer stalls —
+# were diagnosed by reading hours of log back; 10m x 3 would not have held it.
+#
+# json-file rather than the `local` driver: json-file is already what this host
+# runs, `local` changes the on-disk format, and the ad-hoc path everyone
+# actually uses when a container misbehaves is grepping
+# /var/lib/docker/containers/*/*-json.log directly. Not worth breaking for a
+# marginal size win. `compress: "true"` would multiply retention for free and
+# is a reasonable follow-up; it is deliberately left out here so this change
+# stays two options wide.
+#
 # --- why the restart is not automatic ----------------------------------------
 #
 # `default-ulimits` is NOT applied by SIGHUP. Measured on vm700 2026-08-23 with
@@ -43,17 +79,39 @@
 # fresh container still reporting `ulimit -n` of 1024. Only a full daemon
 # restart applies it.
 #
+# `log-driver` and `log-opts` are likewise not reloadable — they are not on
+# dockerd's documented SIGHUP reload list. That is a documentation claim, not a
+# measurement taken here; the restart is required for nofile regardless, so
+# nothing hangs on which of the two reasons you believe.
+#
 # So this file writes the config and STOPS. docker_daemon_restart defaults to
-# false, the same shape as caddy_enabled and imot2026_enabled: a task that
-# interrupts every public service on the host is an explicit decision with a
-# chosen moment, not a side effect of an unrelated `make ops`.
+# false, the same shape as caddy_enabled and imot2026_enabled: an explicit
+# decision with a chosen moment, not a side effect of an unrelated `make ops`.
 #
 #   ansible-playbook ... --tags docker_daemon -e docker_daemon_restart=true
 #
-# NOTE, and it matters for planning: a restart applies the new default only to
-# containers created AFTERWARDS. Already-running containers keep the limit they
-# were started with, so mpe-mongo and rc-mongo need recreating (their own
-# stack's deploy does that) before they see 64000.
+# What that restart now costs is much less than it did when this file was
+# written, and the reason is the live-restore above: measured on vm700
+# 2026-09-18, `docker info` reports LiveRestoreEnabled=true, so containers keep
+# running across the daemon restart. The 2026-08-23 restart bought this. The
+# gate stays on anyway — the Docker API is still briefly unavailable and this
+# is not a decision to make as a side effect — but it is no longer an outage.
+#
+# NOTE, and it matters for planning: a restart applies the new defaults only to
+# containers created AFTERWARDS. Both settings are baked into a container's
+# HostConfig at CREATE time (verified for log-opts against dockerd 28.5.2: a
+# container created under a daemon carrying these defaults reports
+# HostConfig.LogConfig.Config {"max-file":"3","max-size":"50m"}). So:
+#
+#   - already-running containers keep unbounded logging until recreated, and
+#     live-restore means the restart itself will NOT recreate them
+#   - their existing log files are not truncated either. imot2026-mongo's
+#     3.25 GiB and rc-mongo's 3.08 GiB stay on disk until those containers are
+#     recreated; this change is a brake on future growth, not a cleanup
+#   - `docker compose up -d` will NOT recreate them, because changing a daemon
+#     default does not change the compose config hash. It needs
+#     `--force-recreate`, or an explicit `logging:` block in that stack's own
+#     compose file. Recreating the big offenders is a separate, deliberate step.
 
 - name: Ensure /etc/docker exists
   ansible.builtin.file:
@@ -85,13 +143,43 @@
   # The honest check. `docker info` reports the daemon's own limits, not what a
   # container inherits, so this starts a throwaway container and asks it — the
   # same reasoning as the NAS probe writing a FILE rather than chowning a
-  # directory.
+  # directory. Also guarantees the alpine image is present for the probe below.
   ansible.builtin.command: docker run --rm alpine sh -c 'ulimit -n'
   register: docker_nofile_now
   changed_when: false
 
+- name: Read the log rotation a NEW container currently gets
+  # Same honest check, same reason: `docker info` reports the driver but not
+  # the opts, and what actually matters is what a container is handed. log-opts
+  # are merged into HostConfig at CREATE time, so a created-but-never-started
+  # container answers it without running anything.
+  #
+  # `docker rm` here only ever names the id this task just created, captured in
+  # $id one line earlier. No --name: containers appear and vanish on this host
+  # concurrently and a fixed name would collide.
+  #
+  # python3 rather than `docker inspect --format`, because Ansible renders this
+  # string through Jinja first and a Go template's {{ ... }} would be eaten
+  # before docker ever saw it. python3 is already assumed by the validate hook
+  # on the copy task above.
+  ansible.builtin.shell: |
+    set -euo pipefail
+    id="$(docker create alpine true | tail -1)"
+    docker inspect "$id" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["HostConfig"]["LogConfig"]["Config"].get("max-size",""))'
+    docker rm "$id" >/dev/null
+  args:
+    executable: /bin/bash
+  register: docker_logopt_now
+  changed_when: false
+
 - name: Restart the Docker daemon so the new defaults take effect
-  # Gated. This stops every container on the host — see the header.
+  # Gated — see the header. With live-restore already in effect this no longer
+  # stops containers, but it is still an explicit decision.
+  #
+  # The condition covers BOTH settings deliberately. It used to test nofile
+  # alone, which meant that once nofile was satisfied (it is, since
+  # 2026-08-23) any LATER addition to docker_daemon_config would be written to
+  # disk and then silently never applied — an inert config behind a green run.
   ansible.builtin.systemd_service:
     name: docker
     state: restarted
@@ -99,6 +187,7 @@
   when:
     - docker_daemon_restart | bool
     - docker_nofile_now.stdout | int < docker_daemon_min_nofile
+      or docker_logopt_now.stdout | trim != docker_daemon_config['log-opts']['max-size']
 
 - name: Confirm a new container now gets the raised limit
   ansible.builtin.command: docker run --rm alpine sh -c 'ulimit -n'
@@ -106,27 +195,52 @@
   changed_when: false
   when: docker_daemon_restart | bool
 
-- name: Assert the restart actually raised it
+- name: Confirm a new container now gets the log cap
+  ansible.builtin.shell: |
+    set -euo pipefail
+    id="$(docker create alpine true | tail -1)"
+    docker inspect "$id" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["HostConfig"]["LogConfig"]["Config"].get("max-size",""))'
+    docker rm "$id" >/dev/null
+  args:
+    executable: /bin/bash
+  register: docker_logopt_after
+  changed_when: false
+  when: docker_daemon_restart | bool
+
+- name: Assert the restart actually applied both settings
   ansible.builtin.assert:
-    that: docker_nofile_after.stdout | int >= docker_daemon_min_nofile
+    that:
+      - docker_nofile_after.stdout | int >= docker_daemon_min_nofile
+      - docker_logopt_after.stdout | trim == docker_daemon_config['log-opts']['max-size']
     fail_msg: >-
-      A new container still reports nofile={{ docker_nofile_after.stdout }}
-      after the daemon restart (need {{ docker_daemon_min_nofile }}). The
-      config was written but is not in effect — check
-      `journalctl -u docker --since -2min` for a daemon.json parse error.
-    success_msg: "A new container now gets nofile={{ docker_nofile_after.stdout }}"
+      After the daemon restart a new container reports
+      nofile={{ docker_nofile_after.stdout }}
+      (need {{ docker_daemon_min_nofile }}) and
+      log max-size={{ docker_logopt_after.stdout | trim | default('<unset>', true) }}
+      (need {{ docker_daemon_config['log-opts']['max-size'] }}). The config was
+      written but is not in effect — check `journalctl -u docker --since -2min`
+      for a daemon.json parse error. An unquoted integer max-file is valid JSON
+      and so passes the validate hook, but stops dockerd from starting.
+    success_msg: >-
+      A new container now gets nofile={{ docker_nofile_after.stdout }} and log
+      rotation max-size={{ docker_logopt_after.stdout | trim }} x
+      max-file={{ docker_daemon_config['log-opts']['max-file'] }}.
   when: docker_daemon_restart | bool
 
 - name: Say plainly that a restart is still pending
   ansible.builtin.debug:
     msg: >-
-      /etc/docker/daemon.json is written, but a new container still gets
-      nofile={{ docker_nofile_now.stdout }}. `default-ulimits` is not applied
-      by SIGHUP — only a full daemon restart applies it, and that stops every
-      container on this host including the Caddy edge. Re-run with
-      -e docker_daemon_restart=true when a brief outage is acceptable.
-      Already-running containers keep their old limit either way and must be
-      recreated to pick up the new one.
+      /etc/docker/daemon.json is written, but the running daemon has not picked
+      it up: a new container still gets nofile={{ docker_nofile_now.stdout }}
+      (want {{ docker_daemon_min_nofile }}) and log max-size={{
+      docker_logopt_now.stdout | trim | default('<unset — unbounded>', true) }}
+      (want {{ docker_daemon_config['log-opts']['max-size'] }}). Neither
+      setting is applied by SIGHUP; only a full daemon restart applies them.
+      Re-run with -e docker_daemon_restart=true. live-restore is already in
+      effect, so containers keep running across it — but they also therefore
+      keep their OLD log settings and their existing log files, and must be
+      recreated (compose needs --force-recreate) to pick up the cap.
   when:
     - not (docker_daemon_restart | bool)
     - docker_nofile_now.stdout | int < docker_daemon_min_nofile
+      or docker_logopt_now.stdout | trim != docker_daemon_config['log-opts']['max-size']

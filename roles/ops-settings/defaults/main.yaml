@@ -560,6 +560,10 @@ imot2026_project_name: imot2026
 # live-restore: containers keep running across a daemon restart. Enabling it
 # costs one restart and makes every later one free, which is why it is bundled
 # with the nofile change rather than deferred.
+#
+# log-driver/log-opts: json-file has NO size cap by default, so a container's
+# log grows until the disk is full. See docker-daemon.yaml for the measurement
+# and the arithmetic behind 50m x 3.
 docker_daemon_config:
   default-ulimits:
     nofile:
@@ -567,6 +571,16 @@ docker_daemon_config:
       Soft: 64000
       Hard: 64000
   live-restore: true
+  log-driver: json-file
+  log-opts:
+    # BOTH VALUES MUST BE QUOTED. dockerd's log-opts is map[string]string and
+    # refuses to start on `max-file: 3` — "cannot unmarshal number into Go
+    # struct field ... of type string" (measured, dockerd 28.5.2). An unquoted
+    # 3 is still valid JSON, so the `validate:` hook on the copy task does NOT
+    # catch it: it would be caught by dockerd failing to come back up, with
+    # every container on the host down behind it.
+    max-size: "50m"
+    max-file: "3"
 
 docker_daemon_min_nofile: 64000
 

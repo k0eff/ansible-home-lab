@@ -1,0 +1,24 @@
+{
+  "id": "062",
+  "branch": "main",
+  "name": "core--container-log-size-cap",
+  "category": "core",
+  "description": "Gives the ops host a daemon-wide container log rotation default (log-driver json-file, max-size 50m, max-file 3) in /etc/docker/daemon.json, so no container can fill /var. Docker's json-file driver has NO size cap by default: measured on vm700 2026-09-18, imot2026-mongo had grown a single 3.25 GiB log file and rc-mongo 3.08 GiB, with ~7.5 GiB of container logs across the host on a 79 GB root filesystem. Nothing in this repo set log-driver, log-opts or a compose logging: block anywhere, so every one of the 66 containers on the host was writing unbounded.",
+  "implementation": {
+    "file": "roles/ops-settings/tasks/docker-daemon.yaml",
+    "change": "Adds log-driver and log-opts to docker_daemon_config in defaults/main.yaml, so the existing to_nice_json copy task installs them with no new write path. max-file is quoted as a STRING because dockerd's log-opts is map[string]string and refuses to start on an integer, which the existing JSON-syntax validate hook would not catch. The restart gate in docker-daemon.yaml was nofile-specific (both the restart and the 'still pending' debug fired only when a fresh container reported nofile below the minimum); with nofile already satisfied on vm700 that gate would have written the log config and silently skipped the restart, leaving inert config behind a green run. A second probe now reads the log rotation a NEW container is given and the restart, the post-restart assert and the pending message all consider both settings."
+  },
+  "validation": {
+    "type": "static",
+    "checks": [
+      "MEASURED (laptop, docker:28-dind, dockerd 28.5.2): rendering docker_daemon_config exactly as to_nice_json does (json.dumps sort_keys=True indent=4) and running `dockerd --validate --config-file` on the result reports 'configuration OK'. With max-file as an integer instead of a string the same binary fails: 'unable to configure the Docker daemon ... json: cannot unmarshal number into Go struct field Config.CommonConfig.LogConfig.log-opts of type string'. The integer form is still VALID JSON and passes the role's own `validate:` hook (python3 json.load), so the quoting is load-bearing and unguarded by the existing check — this is the difference between a working host and dockerd refusing to start with every container down",
+      "MEASURED (laptop dind, dockerd 28.5.2): a container created under a daemon carrying these defaults reports HostConfig.LogConfig.Config {\"max-file\":\"3\",\"max-size\":\"50m\"}, so the new probe task reads a real signal rather than an always-empty map. This also demonstrates the KNOWN LIMIT below: the opts are baked into HostConfig at create time",
+      "MEASURED: the rendered docker_daemon_config still carries default-ulimits nofile 64000 and live-restore true unchanged — regression check for eval 022, which owns the same two files. eval 022's own checks are validation.type 'live' and cannot be re-measured without a daemon restart, which this task was forbidden to perform; the static invariants they depend on are preserved, and the rendered JSON is byte-comparable to the nofile/live-restore portion of the daemon.json live on vm700 today",
+      "MEASURED: both changed YAML files parse; the two new multi-line `when:` conditions fold to single Jinja expressions and compile (filter precedence binds them as `(nofile|int < min) or ((logopt|trim) != want)`)",
+      "IDEMPOTENT BY CONSTRUCTION (argued, not run — this task must not run ansible): ansible.builtin.copy with content: installs only when the destination checksum differs, and to_nice_json sorts keys, so YAML key order cannot cause churn; both docker probes are changed_when: false; the restart task's condition is false once the restart has taken effect",
+      "KNOWN LIMIT: log-opts are merged into a container's HostConfig at CREATE time, so after the daemon restart the existing containers keep unbounded logging and their existing log files do not shrink. imot2026-mongo (3.25 GiB) and rc-mongo (3.08 GiB) need recreating, and `docker compose up -d` will NOT do it because a daemon-default change does not alter the compose config hash — it needs --force-recreate. Deferred to the orchestrator.",
+      "NOT RUN: applying this requires `--tags docker_daemon -e docker_daemon_restart=true` against vm700. This task was explicitly forbidden to run ansible-playbook, so the change is verified statically only and has NOT been applied."
+    ]
+  },
+  "status": "pass"
+}
