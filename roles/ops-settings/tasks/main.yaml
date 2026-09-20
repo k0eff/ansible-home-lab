@@ -125,7 +125,10 @@
   tags:
     - portainer_stack
 
-- name: Import koeff-ai-stack setup (prometheus + grafana only — litellm/qdrant/ollama/headroom decommissioned 2026-08-31)
+# Renders the stack's config and applies koeff_ai_stack_state, which defaults to
+# `absent`: litellm/qdrant/ollama/headroom were decommissioned 2026-08-31, and the
+# prometheus + grafana pair that outlived them was stopped 2026-09-20.
+- name: Import koeff-ai-stack setup (stopped by default — see koeff_ai_stack_state)
   import_tasks: headroom.yaml
   tags:
     - headroom_stack

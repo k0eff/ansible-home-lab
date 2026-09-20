@@ -102,17 +102,13 @@
 
 # --- Internal backends (*.local.koeff.com) ---
 
-# grafana.local.koeff.com - Grafana metrics dashboard with live streaming panels
-(grafana_local_proxy) {
-	reverse_proxy {{ caddy_backend_host }}:{{ caddy_grafana_port }} {
-		# WebSocket support is native to Caddy 2; no directive needed.
-	}
-}
-
-# prometheus.local.koeff.com - Prometheus metrics backend
-(prometheus_local_proxy) {
-	reverse_proxy {{ caddy_backend_host }}:{{ caddy_prometheus_port }}
-}
+# grafana.local.koeff.com and prometheus.local.koeff.com were served from here
+# until 2026-09-20. Their backend, koeff-ai-stack, is stopped
+# (koeff_ai_stack_state), so the snippets and their host blocks are gone rather
+# than left pointing at closed ports 3000 and 9090 — a route whose upstream does
+# not exist answers 502 in ~0.1s, which reads as a working endpoint in a latency
+# graph and cost an afternoon of debugging the day this was removed.
+# Restoring the stack means restoring these two snippets with it.
 
 # portainer.local.koeff.com - Portainer container management UI
 (portainer_local_proxy) {

@@ -1,0 +1,24 @@
+{
+  "id": "029",
+  "name": "core--koeff-ai-stack-stopped",
+  "category": "core",
+  "description": "koeff-ai-stack (prometheus + grafana, the last services left after the 2026-08-31 LLM-routing decommission) is declared stopped in Ansible rather than stopped by hand. A single variable, koeff_ai_stack_state, owns the stack's lifecycle: 'absent' tears the containers down, 'present' brings the same stack back from the same rendered config. Owner asked for the stop on 2026-09-20 after the Claude CLI was pointed away from this stack.",
+  "implementation": {
+    "file": "roles/ops-settings/tasks/headroom.yaml",
+    "change": "Add koeff_ai_stack_state (default 'absent') to roles/ops-settings/defaults/main.yaml and drive community.docker.docker_compose_v2's state from it. Config templates keep rendering under 'absent' because the module reads the compose file to know what to tear down; pull: always only applies when the stack is being started. No remove_images and no remove_volumes: the bind-mounted data under /var/lib/docker-data/koeff-ai-stack survives, so restore is one variable flip."
+  },
+  "validation": {
+    "type": "live_state",
+    "checks": [
+      "roles/ops-settings/defaults/main.yaml defines koeff_ai_stack_state with the default 'absent'",
+      "The 'Apply koeff-ai-stack lifecycle' task passes state: \"{{ koeff_ai_stack_state }}\" to community.docker.docker_compose_v2 and sets neither remove_images nor remove_volumes",
+      "The compose file is still rendered when koeff_ai_stack_state is 'absent', so the teardown has a project definition to read",
+      "After ansible-playbook -l ops --tags headroom_stack: docker ps -a on vm700 lists neither koeff-ai-stack-prometheus nor koeff-ai-stack-grafana",
+      "The same run removes exactly those two containers and nothing else — a before/after diff of docker ps -a names shows two removals (the 2026-08-31 remove_orphans incident is the reason this is checked)",
+      "/var/lib/docker-data/koeff-ai-stack/prometheus and /grafana still exist on the host after the teardown"
+    ],
+    "result": "Validated 2026-09-20 on vm700. ansible-playbook -l ops --tags headroom_stack: ok=10 changed=1, the one change being 'Apply koeff-ai-stack lifecycle'. docker ps -a went 47 -> 45 and a before/after diff showed exactly two removals, koeff-ai-stack-grafana and koeff-ai-stack-prometheus; the koeff-ai-stack_default network is gone and nothing listens on 9090 or 3000. Data survived: /var/lib/docker-data/koeff-ai-stack/prometheus 129M and /grafana 50M, and /opt/koeff-ai-stack still holds every rendered config."
+  },
+  "status": "pass",
+  "branch": "main"
+}

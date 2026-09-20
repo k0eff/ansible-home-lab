@@ -18,11 +18,12 @@
       "Rendered /opt/koeff-ai-stack/litellm-config.yaml on 192.168.31.152 contains both entries and no unrendered {{ }} placeholder",
       "LiteLLM container restarted and GET http://localhost:4000/models lists claude-fable-5 and claude-mythos-5",
       "Previously served models (claude-opus-5, claude-sonnet-5, claude-haiku-4-5-20251001) still listed after restart",
-      "Routing probe: POST /v1/chat/completions with a deliberately invalid x-api-key returns Anthropic authentication_error (not a LiteLLM 'model not found'), for both claude-fable-5 and claude-mythos-5 \u2014 proves BYOK header forwarding reaches Anthropic",
+      "Routing probe: POST /v1/chat/completions with a deliberately invalid x-api-key returns Anthropic authentication_error (not a LiteLLM 'model not found'), for both claude-fable-5 and claude-mythos-5 — proves BYOK header forwarding reaches Anthropic",
       "GET /health/liveliness returns \"I'm alive!\" after restart",
-      "No other eval in this repo targets litellm-config.yaml.j2, so no cross-eval regression re-validation was required (005/009/011 target docker-compose.yml.j2, 010 targets nginx-ingest.conf.j2 \u2014 both untouched)"
+      "No other eval in this repo targets litellm-config.yaml.j2, so no cross-eval regression re-validation was required (005/009/011 target docker-compose.yml.j2, 010 targets nginx-ingest.conf.j2 — both untouched)"
     ]
   },
-  "status": "pass",
-  "validated_on": "vm700 (192.168.31.152), /opt/koeff-ai-stack, LiteLLM container koeff-ai-stack-litellm"
+  "status": "disabled",
+  "validated_on": "vm700 (192.168.31.152), /opt/koeff-ai-stack, LiteLLM container koeff-ai-stack-litellm",
+  "disabled_reason": "Superseded 2026-09-20: koeff-ai-stack is stopped (koeff_ai_stack_state: absent, eval 029). This eval validates a service that no longer runs — the LLM-routing chain (litellm, headroom, nginx-ingest, qdrant, ollama, postgres) was decommissioned 2026-08-31 and the prometheus + grafana pair that outlived it was stopped 2026-09-20. Several of these evals also point at template files that were deleted with those services. Re-enable only if the stack is restored."
 }

@@ -74,8 +74,23 @@
 #   ssh <host> 'cd {{ ai_stack_dir }} && docker compose up -d --remove-orphans'
 # — already done for the 2026-08-31 removal. Do not re-add remove_orphans
 # to this task without first reproducing why the module mis-scoped it.
-- name: Start koeff-ai-stack
+# 2026-09-20: the stack is now declared STOPPED — koeff_ai_stack_state defaults
+# to `absent` (see the role's defaults for why). Everything above still renders
+# in that state on purpose: docker_compose_v2 reads the compose file to learn
+# which containers and networks a teardown covers, so removing the templating
+# would leave `absent` with nothing to act on and the containers running.
+#
+# No remove_images, no remove_volumes. The bind mounts under
+# {{ ai_stack_data_dir }} hold the prometheus TSDB and the grafana database;
+# a stop must not be a data loss. Flipping koeff_ai_stack_state to `present`
+# restores the same two services from the same config.
+#
+# `pull: always` only makes sense when starting — asking the module to pull
+# images for a stack it is about to tear down is a pointless registry round trip
+# on a host that has been OOM-killed by image work before (see the caddy image
+# header in defaults/main.yaml).
+- name: Apply koeff-ai-stack lifecycle
   community.docker.docker_compose_v2:
     project_src: "{{ ai_stack_dir }}"
-    state: present
-    pull: always
+    state: "{{ koeff_ai_stack_state }}"
+    pull: "{{ 'always' if koeff_ai_stack_state == 'present' else 'never' }}"

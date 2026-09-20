@@ -16,6 +16,7 @@
       "Prometheus can scrape all three targets without errors"
     ]
   },
-  "status": "pending",
-  "branch": "main"
+  "status": "disabled",
+  "branch": "main",
+  "disabled_reason": "Superseded 2026-09-20: koeff-ai-stack is stopped (koeff_ai_stack_state: absent, eval 029). This eval validates a service that no longer runs — the LLM-routing chain (litellm, headroom, nginx-ingest, qdrant, ollama, postgres) was decommissioned 2026-08-31 and the prometheus + grafana pair that outlived it was stopped 2026-09-20. Several of these evals also point at template files that were deleted with those services. Re-enable only if the stack is restored."
 }

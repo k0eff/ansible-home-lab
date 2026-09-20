@@ -1,0 +1,23 @@
+{
+  "id": "030",
+  "name": "core--caddy-drops-ai-stack-routes",
+  "category": "core",
+  "description": "Caddy stops serving grafana.local.koeff.com and prometheus.local.koeff.com now that koeff-ai-stack is stopped (eval 029). A reverse_proxy to a closed port answers 502 in ~0.1s, which looks like a live endpoint to anything that only checks whether the name responds — the same shape that made headroom.local.koeff.com read as a working Claude CLI base URL for weeks. The routes, their snippets and their variables are removed together rather than left behind.",
+  "implementation": {
+    "file": "roles/ops-settings/templates/caddy/30-internal.caddy.j2",
+    "change": "Drop the grafana and prometheus host blocks from 30-internal.caddy.j2, the grafana_local_proxy and prometheus_local_proxy snippets from 10-snippets.caddy.j2, and caddy_host_grafana / caddy_host_prometheus / caddy_grafana_port / caddy_prometheus_port from the role defaults. portainer.local.koeff.com is the only internal hostname left."
+  },
+  "validation": {
+    "type": "live_http",
+    "checks": [
+      "git grep finds no reference to caddy_host_grafana, caddy_host_prometheus, caddy_grafana_port, caddy_prometheus_port, grafana_local_proxy or prometheus_local_proxy outside explanatory comments",
+      "After ansible-playbook -l ops --tags caddy_stack -e caddy_enabled=true: https://grafana.local.koeff.com/ and https://prometheus.local.koeff.com/ no longer return 502 from a live route",
+      "portainer.local.koeff.com still answers as before — the one internal hostname that was not removed",
+      "The public hostnames Caddy fronts are unaffected by the reload: share, musicengine, chat and imot return the same status codes as before the run",
+      "The Caddy container is reloaded gracefully (docker exec caddy reload), not recreated"
+    ],
+    "result": "Validated 2026-09-20 on vm700. ansible-playbook -l ops --tags caddy_stack -e caddy_enabled=true: ok=25 changed=3 — the two template renders plus a graceful 'Reload the Caddy configuration'. 'Start the Caddy edge stack' reported ok, not changed, and both caddy containers still read 'Up 2 weeks', so nothing was recreated. grafana.local and prometheus.local went from 502 to no route at all (curl 000); portainer.local still answers 200; share/musicengine/chat/imot returned 404/303/200/200 both before and after."
+  },
+  "status": "pass",
+  "branch": "main"
+}

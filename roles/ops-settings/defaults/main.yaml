@@ -66,6 +66,27 @@ omniroute_auth_cookie_secure: true
 # after moving omniroute_image to a tag that has been republished in place.
 omniroute_force_pull: false
 
+# --- koeff-ai-stack lifecycle --------------------------------------------------
+#
+# What is left of this stack is prometheus + grafana. Its reason to exist went
+# away in two steps: the LLM-routing services (litellm, headroom, qdrant,
+# ollama, postgres) were decommissioned on 2026-08-31, which left prometheus
+# with `scrape_configs: []` and grafana with a datasource pointing at an empty
+# prometheus; and on 2026-09-20 the owner moved the Claude CLI off this stack
+# entirely ("аи стака на вм700 искам да го спрем"), so nothing upstream depends
+# on it either. Two containers were being kept alive to monitor nothing.
+#
+# `absent` tears the containers and the project network down. `present` brings
+# the same stack back from the same rendered config — the compose file and the
+# prometheus/grafana configs are still written to {{ ai_stack_dir }} in both
+# states, and neither remove_images nor remove_volumes is set, so the TSDB and
+# the grafana database under {{ ai_stack_data_dir }} survive a teardown. Restore
+# is one flip of this variable plus --tags headroom_stack; nothing here needs to
+# be rebuilt from scratch.
+#
+# Covered by eval 029-main-core--koeff-ai-stack-stopped.json.
+koeff_ai_stack_state: absent
+
 # --- Caddy edge stack (https://caddy.koeff.com/.../18 hostnames) -----------
 #
 # Replaces the cluster ingress (Envoy Gateway koeff-public / koeff-public-v2
@@ -195,8 +216,6 @@ caddy_musicengine_port: 8770
 # imot2026_web_bind_host) so Caddy can reach it here.
 caddy_imot_port: 8790
 caddy_omniroute_port: 20130
-caddy_grafana_port: 3000
-caddy_prometheus_port: 9090
 caddy_portainer_port: 9000
 
 # --- Hostnames (18 public + 1 parallel-run fallback) ----------------------------
@@ -211,8 +230,8 @@ caddy_host_share: share.koeff.com
 caddy_host_shareurl: shareurl.koeff.com
 
 # Production internal (*.local.koeff.com — private IPs, HTTPS only).
-caddy_host_grafana: grafana.local.koeff.com
-caddy_host_prometheus: prometheus.local.koeff.com
+# grafana and prometheus lived here until 2026-09-20; koeff-ai-stack behind
+# them is stopped, so their hostnames, ports and Caddy blocks went with it.
 caddy_host_portainer: portainer.local.koeff.com
 
 # Parallel-run v2 hostnames — RETIRED 2026-08-16.
