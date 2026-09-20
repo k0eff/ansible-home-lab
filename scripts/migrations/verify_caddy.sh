@@ -41,8 +41,7 @@ if [[ "${1:-}" == "--curl" ]]; then
 EOF
   for h in chat.koeff.com n8n.koeff.com overseerr.koeff.com musicengine.koeff.com \
            omniroute.koeff.com shareurl.koeff.com share.koeff.com \
-           grafana.local.koeff.com prometheus.local.koeff.com litellm.local.koeff.com \
-           qdrant.local.koeff.com headroom.local.koeff.com portainer.local.koeff.com; do
+           portainer.local.koeff.com; do
     printf "curl -sk -o /dev/null -w '%%{http_code}  %s\\\\n' --resolve %s:443:%s https://%s/\n" "$h" "$h" "$T" "$h"
   done
   cat <<EOF
@@ -51,7 +50,7 @@ EOF
 for h in chat n8n overseerr musicengine omniroute shareurl share; do
   curl -sk -o /dev/null -w "%{http_code}  \$h.koeff.com\n" --resolve \$h.koeff.com:443:$T https://\$h.koeff.com/
 done
-for h in grafana prometheus litellm qdrant headroom portainer; do
+for h in portainer; do
   curl -sk -o /dev/null -w "%{http_code}  \$h.local.koeff.com\n" --resolve \$h.local.koeff.com:443:$T https://\$h.local.koeff.com/
 done
 
@@ -121,8 +120,11 @@ cmp_status(){
 
 PUBLIC=(chat.koeff.com n8n.koeff.com overseerr.koeff.com
         musicengine.koeff.com omniroute.koeff.com shareurl.koeff.com)
-INTERNAL=(grafana.local.koeff.com prometheus.local.koeff.com litellm.local.koeff.com
-          qdrant.local.koeff.com headroom.local.koeff.com portainer.local.koeff.com)
+# grafana, prometheus, litellm, qdrant and headroom were internal hostnames here
+# until their backends were decommissioned (litellm/qdrant/headroom 2026-08-31,
+# grafana/prometheus 2026-09-20). Caddy no longer has blocks for them, so
+# comparing them against the cluster compares two different kinds of nothing.
+INTERNAL=(portainer.local.koeff.com)
 
 printf '\033[1mCaddy edge verification\033[0m\n'
 printf '  new stack : %s (vm700)\n' "$NEW"
@@ -201,7 +203,6 @@ def hs(ip, host, path):
     except Exception as e:
         return f"ERR({type(e).__name__})"
 cases = [("chat.koeff.com","/websocket",pub), ("n8n.koeff.com","/rest/push?pushRef=t",pub),
-         ("grafana.local.koeff.com","/api/live/ws",internal),
          ("portainer.local.koeff.com","/api/websocket/exec",internal)]
 bad = 0
 for host, path, cl in cases:
@@ -221,7 +222,7 @@ fi
 # ── 5. certificates ──────────────────────────────────────────────────────────
 hdr '9. Certificates served by Caddy'
 staging=0
-for h in chat.koeff.com n8n.koeff.com share.koeff.com grafana.local.koeff.com; do
+for h in chat.koeff.com n8n.koeff.com share.koeff.com portainer.local.koeff.com; do
   info=$(echo | openssl s_client -connect "$NEW:443" -servername "$h" 2>/dev/null \
          | openssl x509 -noout -issuer -subject -enddate 2>/dev/null)
   if [[ -z "$info" ]]; then bad "$(printf '%-30s no certificate served' "$h")"; continue; fi
@@ -252,9 +253,12 @@ hdr '10. vm700 co-tenants still healthy'
 # these count as warnings, never failures. If one goes quiet right after a
 # deploy, check whether the stop was clean and who issued it before blaming this
 # stack: docker inspect <name> and docker events --since 30m tell you both.
-for pn in "6666 rocketchat" "8770 musicengine" "4000 litellm" "3000 grafana" \
-          "9090 prometheus" "20130 omniroute" "6333 qdrant" "9000 portainer" \
-          "8787 headroom" "8080 playwright-mcp"; do
+# litellm :4000, qdrant :6333 and headroom :8787 went with the 2026-08-31
+# decommission; grafana :3000 and prometheus :9090 with the 2026-09-20 stop of
+# koeff-ai-stack. Listing a port nothing binds turns a real warning channel into
+# permanent noise, so they are dropped rather than left to report DOWN forever.
+for pn in "6666 rocketchat" "8770 musicengine" "20130 omniroute" \
+          "9000 portainer" "8080 playwright-mcp"; do
   p=${pn%% *}; n=${pn##* }
   c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 6 "http://$NEW:$p/" 2>/dev/null)
   if [[ "$c" != "000" && -n "$c" ]]; then ok "$(printf '%-16s :%-6s %s' "$n" "$p" "$c")"
