@@ -15,3 +15,9 @@
 	import access_log
 	import portainer_local_proxy
 }
+
+# forgejo.koeff.com - Forgejo (T-1821). forge.koeff.com is the Forge v9 UI, not Forgejo (D-0023). Resolves to vm700's private address; HTTPS only.
+{{ caddy_host_forgejo }} {
+	import access_log
+	import forgejo_proxy
+}

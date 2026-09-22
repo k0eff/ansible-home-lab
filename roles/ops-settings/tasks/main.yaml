@@ -148,6 +148,11 @@
   tags:
     - caddy_stack
 
+- name: Import Forgejo setup (T-1821)
+  import_tasks: forgejo.yaml
+  tags:
+    - forgejo_stack
+
 - name: Verify Playwright‑MCP Docker image builds and contains Chromium
   block:
     - name: Build Playwright‑MCP Docker image on localhost

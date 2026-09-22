@@ -117,6 +117,12 @@
 	}
 }
 
+# forgejo.koeff.com - Forgejo (T-1821, tasks/forgejo.yaml). A private IP in public DNS, so HTTPS
+# only, certificate by DNS-01 like the *.local names. No body limit: git pushes over HTTPS.
+(forgejo_proxy) {
+	reverse_proxy {{ caddy_backend_host }}:{{ caddy_forgejo_port }}
+}
+
 # --- v2 parallel-run backends (if enabled) ---
 {% if caddy_v2_enabled %}
 

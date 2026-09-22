@@ -1,0 +1,33 @@
+# Forgejo on vm700 — rendered by roles/ops-settings/tasks/forgejo.yaml (T-1821). Do not edit on the host.
+services:
+  forgejo:
+    image: "{{ forgejo_image }}"
+    container_name: forgejo
+    restart: always
+    # vm700 has OOM-killed neighbours before (see tasks/omniroute.yaml); Forgejo idles near 200 MB.
+    mem_limit: "{{ forgejo_mem_limit }}"
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      FORGEJO__database__DB_TYPE: sqlite3
+      FORGEJO__server__DOMAIN: "{{ forgejo_domain }}"
+      FORGEJO__server__ROOT_URL: "https://{{ forgejo_domain }}/"
+      FORGEJO__server__HTTP_PORT: "3000"
+      FORGEJO__server__SSH_DOMAIN: "{{ forgejo_domain }}"
+      FORGEJO__server__SSH_PORT: "{{ forgejo_ssh_port }}"
+      FORGEJO__server__SSH_LISTEN_PORT: "22"
+      # Configured here, not by the web installer: the installer is a page anyone on the LAN
+      # could complete first. INSTALL_LOCK closes it; the owner creates the admin by CLI.
+      FORGEJO__security__INSTALL_LOCK: "true"
+      FORGEJO__service__DISABLE_REGISTRATION: "true"
+      FORGEJO__service__REQUIRE_SIGNIN_VIEW: "true"
+      FORGEJO__repository__DEFAULT_PRIVATE: "private"
+      FORGEJO__actions__ENABLED: "true"
+      FORGEJO__log__LEVEL: "Info"
+    volumes:
+      - "{{ forgejo_data_dir }}:/data"
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "{{ forgejo_http_port }}:3000"
+      - "{{ forgejo_ssh_port }}:22"

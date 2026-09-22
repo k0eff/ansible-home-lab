@@ -1,0 +1,31 @@
+{
+  "id": "031",
+  "branch": "main",
+  "name": "forgejo-stack",
+  "category": "core",
+  "description": "Forgejo (T-1821) runs on vm700 as separate infrastructure owned by ansible (roles/ops-settings/tasks/forgejo.yaml), pinned by digest, published over HTTPS through the Caddy edge at the forge hostname, git over SSH on its own port, registration closed.",
+  "implementation": {
+    "files": [
+      "roles/ops-settings/tasks/forgejo.yaml",
+      "roles/ops-settings/templates/forgejo/docker-compose.yml.j2",
+      "roles/ops-settings/defaults/main.yaml",
+      "roles/ops-settings/tasks/main.yaml",
+      "roles/ops-settings/templates/caddy/10-snippets.caddy.j2",
+      "roles/ops-settings/templates/caddy/30-internal.caddy.j2",
+      "roles/ops-settings/docs/forgejo.md"
+    ],
+    "changes": "New forgejo_stack tag gated on forgejo_enabled; image pinned by digest (15.0.9 LTS); sqlite3; INSTALL_LOCK + DISABLE_REGISTRATION + REQUIRE_SIGNIN_VIEW; mem_limit; health gate on /api/healthz and version assert on /api/v1/version; Caddy internal host block for the forge hostname; rollback documented."
+  },
+  "validation": {
+    "type": "live",
+    "checks": [
+      "ansible-playbook ... --tags forgejo_stack -e forgejo_enabled=true completes with the version assert passing",
+      "curl https://<forge host>/api/healthz returns 200 with a valid Let's Encrypt certificate (curl without -k)",
+      "curl https://<forge host>/api/v1/version reports 15.0.9",
+      "ssh -p 2222 to the forge host answers with an SSH banner",
+      "registration is closed: GET /user/sign_up does not offer a sign-up form"
+    ],
+    "result": "2026-09-22 live: play ok=10 failed=0, version assert passed (forgejo 15.0.9+gitea-1.22.0); https://forgejo.koeff.com/api/healthz 200 ssl_verify=0, cert CN=forgejo.koeff.com issuer Let's Encrypt notAfter 2026-12-21; /user/sign_up says Registration is disabled; ssh -p 2222 connects."
+  },
+  "status": "pass"
+}

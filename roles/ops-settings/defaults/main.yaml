@@ -217,6 +217,7 @@ caddy_musicengine_port: 8770
 caddy_imot_port: 8790
 caddy_omniroute_port: 20130
 caddy_portainer_port: 9000
+caddy_forgejo_port: 3000
 
 # --- Hostnames (18 public + 1 parallel-run fallback) ----------------------------
 # Production public.
@@ -233,6 +234,7 @@ caddy_host_shareurl: shareurl.koeff.com
 # grafana and prometheus lived here until 2026-09-20; koeff-ai-stack behind
 # them is stopped, so their hostnames, ports and Caddy blocks went with it.
 caddy_host_portainer: portainer.local.koeff.com
+caddy_host_forgejo: forgejo.koeff.com
 
 # Parallel-run v2 hostnames — RETIRED 2026-08-16.
 # These were staging twins of the prod hostnames, pointing at identical backends.
@@ -597,3 +599,19 @@ docker_daemon_min_nofile: 64000
 # Docker 29.2.0), so without this the config sits written and inert.
 #   --tags docker_daemon -e docker_daemon_restart=true
 docker_daemon_restart: false
+
+# --- Forgejo (T-1821) -------------------------------------------------------
+# Self-hosted forge on vm700; see tasks/forgejo.yaml and docs/forgejo.md.
+# Enable deliberately: --tags forgejo_stack -e forgejo_enabled=true
+forgejo_enabled: false
+# 15.0.9 = the v15 LTS line (supported into 2027), read from codeberg.org's own registry
+# 2026-09-22; pinned by digest so a retag upstream cannot change what runs.
+forgejo_image: codeberg.org/forgejo/forgejo@sha256:91a5310c86934339e16bd06b6078aada836e3d8935b2d70f6598108cbfaed5d1
+forgejo_image_version: "15.0.9"
+forgejo_force_pull: false
+forgejo_stack_dir: /opt/forgejo
+forgejo_data_dir: /var/lib/docker-data/forgejo
+forgejo_domain: forgejo.koeff.com
+forgejo_http_port: 3000
+forgejo_ssh_port: 2222
+forgejo_mem_limit: 1g

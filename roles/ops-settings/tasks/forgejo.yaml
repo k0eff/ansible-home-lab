@@ -1,0 +1,85 @@
+---
+# Forgejo on vm700 (T-1821) — the self-hosted forge every repo under koeff-gitroot-main can use;
+# GitHub stays an upstream mirror only. Separate infrastructure: its own compose project, its own
+# data dir, nothing shared with the imot2026 stack. Published through the Caddy edge at
+# https://{{ forgejo_domain }} (tasks/caddy.yaml, 30-internal.caddy.j2); git over SSH on
+# {{ forgejo_ssh_port }}. Rollback and first-admin steps: docs/forgejo.md.
+#
+# Owner, 2026-09-20: «ок съм с forgejo по принцип»; confirmed 2026-09-21/22 (T-1821 history).
+# Enable deliberately, like caddy_enabled and imot2026_enabled:
+#   --tags forgejo_stack -e forgejo_enabled=true
+
+- name: Assert the Forgejo image is pinned by digest
+  ansible.builtin.assert:
+    that:
+      - "'@sha256:' in forgejo_image"
+    fail_msg: forgejo_image must be pinned by digest (see the header of tasks/portainer.yaml for why).
+  when: forgejo_enabled | bool
+
+- name: Ensure Forgejo directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ forgejo_stack_dir }}", owner: "root", mode: "0755" }
+    # The container runs as uid/gid 1000 (USER_UID/USER_GID in the compose file).
+    - { path: "{{ forgejo_data_dir }}", owner: "1000", mode: "0750" }
+  loop_control:
+    label: "{{ item.path }}"
+  when: forgejo_enabled | bool
+
+- name: Pull the pinned Forgejo image by digest
+  community.docker.docker_image_pull:
+    name: "{{ forgejo_image }}"
+    pull: "{{ 'always' if forgejo_force_pull | bool else 'not_present' }}"
+  when: forgejo_enabled | bool
+
+- name: Render docker-compose.yml for Forgejo
+  ansible.builtin.template:
+    src: forgejo/docker-compose.yml.j2
+    dest: "{{ forgejo_stack_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  when: forgejo_enabled | bool
+
+- name: Start Forgejo
+  community.docker.docker_compose_v2:
+    project_src: "{{ forgejo_stack_dir }}"
+    project_name: forgejo
+    state: present
+    build: never
+  when: forgejo_enabled | bool
+
+- name: Wait for Forgejo to report healthy
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ forgejo_http_port }}/api/healthz"
+    status_code: 200
+  register: forgejo_health
+  retries: 24
+  delay: 5
+  until: forgejo_health.status == 200
+  changed_when: false
+  when: forgejo_enabled | bool
+
+- name: Read back the running Forgejo version
+  # From the binary, not /api/v1/version: REQUIRE_SIGNIN_VIEW closes the API to anonymous callers
+  # (measured on the first deploy: 403 "Only signed in user is allowed to call APIs").
+  ansible.builtin.command:
+    cmd: docker exec forgejo forgejo --version
+  register: forgejo_version
+  changed_when: false
+  when: forgejo_enabled | bool
+
+- name: Assert Forgejo is serving the pinned version
+  ansible.builtin.assert:
+    that:
+      - forgejo_version.stdout is search('version ' ~ forgejo_image_version ~ '([+ -]|$)')
+    fail_msg: >-
+      Forgejo reports "{{ forgejo_version.stdout }}" but the pin says {{ forgejo_image_version }}:
+      forgejo_image and forgejo_image_version have drifted apart, or the container was not recreated.
+    success_msg: "{{ forgejo_version.stdout }} (pinned {{ forgejo_image_version }})"
+  when: forgejo_enabled | bool
