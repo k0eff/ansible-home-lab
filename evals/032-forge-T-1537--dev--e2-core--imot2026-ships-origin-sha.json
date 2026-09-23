@@ -1,0 +1,21 @@
+{
+  "id": "032",
+  "branch": "forge/T-1537--dev--e2",
+  "name": "imot2026-ships-origin-sha",
+  "category": "core",
+  "description": "T-1537: the imot2026 deploy ships the sha origin holds for imot2026_git_ref (git ls-remote), exported with git archive into a controller ship dir that is rsynced, built and rendered from; the local checkout's HEAD/working tree cannot change what ships. Post-deploy readback asserts every imot2026-app container's IMOT2026_GIT_SHA equals that sha.",
+  "implementation": {
+    "files": ["roles/ops-settings/tasks/imot2026.yaml", "roles/ops-settings/defaults/main.yaml"],
+    "changes": "rev-parse HEAD + dirty assert replaced by ls-remote resolve + sha assert + fetch/archive export; synchronize and both templates read imot2026_ship_dir; new readback + assert live sha == origin sha."
+  },
+  "validation": {
+    "type": "live",
+    "checks": [
+      "ansible-playbook --syntax-check playbook-index.yaml passes",
+      "local harness: ls-remote expression yields a 40-hex sha; readback assert passes on matching shas and fails on a mismatch",
+      "one real deploy from a deliberately stale checkout ships the origin sha (main session, after landing)"
+    ],
+    "result": "2026-09-23 syntax-check ok; local harness ok=5 failed=0; live deploy pending (main session)."
+  },
+  "status": "pending"
+}

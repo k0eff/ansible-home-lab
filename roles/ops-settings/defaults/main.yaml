@@ -491,6 +491,13 @@ imot2026_enabled: false
 # relative to one another.
 imot2026_repo_dir: "{{ playbook_dir }}/../imotbgScraper2026"
 
+# T-1537: the branch whose ORIGIN sha ships (git ls-remote), never the
+# checkout's local HEAD. imot2026_repo_dir is only a git object store; the
+# commit is exported with git archive into imot2026_ship_dir on the
+# controller, and that tree is rsynced, built and rendered from.
+imot2026_git_ref: main
+imot2026_ship_dir: "{{ lookup('env', 'TMPDIR') | default('/tmp', true) | regex_replace('/$', '') }}/imot2026-ship"
+
 # Host ports published by imotbgScraper2026/deploy/docker-compose.yml.j2.
 # Mongo is bound to 127.0.0.1 only there; the web service is the one port
 # meant to be reached from outside vm700, and as of 2026-08-23 something

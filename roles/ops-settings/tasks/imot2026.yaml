@@ -21,7 +21,7 @@
 # where this was weighed against caddy.yaml's self-authored-template pattern.
 #
 # BUILD, NOT PULL: unlike caddy/omniroute there is no published image to pull.
-# The image is built ON vm700 from the git SHA of HEAD, once, via
+# The image is built ON vm700 from the ORIGIN sha of imot2026_git_ref (T-1537), once, via
 # docker_image_build below; the docker_compose_v2 task still runs with
 # build: never, so compose itself can never trigger a second, uncontrolled
 # build — the same OOM history roles/ops-settings/tasks/omniroute.yaml's
@@ -237,34 +237,54 @@
 
 # --- build (never via compose) ------------------------------------------------
 
-- name: Determine the imotbgScraper2026 commit to build
-  # lookup() always runs on the controller regardless of this task's target
-  # host, so this reads the sibling checkout on the Mac — the same source
-  # imotbgScraper2026/deploy/deploy.yaml itself reads, for the same reason.
+- name: Resolve the imotbgScraper2026 commit to ship from origin
+  # T-1537: what ships is the sha origin holds for imot2026_git_ref, never the
+  # controller checkout's local HEAD. On 2026-09-14 a laptop checkout that was
+  # behind origin shipped a stale HEAD and a new env var was missing from the
+  # container; it had only worked on other days because something else
+  # happened to fast-forward the checkout first. The checkout is used only as
+  # a git object store from here on: its HEAD, branch and working tree
+  # (dirty or behind) cannot change what ships.
   ansible.builtin.set_fact:
-    imot2026_git_sha: "{{ lookup('pipe', 'git -C ' + imot2026_repo_dir + ' rev-parse HEAD') }}"
-    imot2026_git_dirty: "{{ lookup('pipe', 'git -C ' + imot2026_repo_dir + ' status --porcelain') | trim }}"
+    imot2026_git_sha: >-
+      {{ (lookup('pipe', 'git -C ' + imot2026_repo_dir
+          + ' ls-remote --exit-code origin refs/heads/' + imot2026_git_ref)
+          .split() | first) | default('') }}
   when: imot2026_enabled | bool
 
-- name: Refuse to deploy a dirty imotbgScraper2026 working tree
-  # The image is synced from the working tree but tagged with the committed
-  # SHA below, so a dirty tree ships uncommitted code under a tag that does
-  # not describe it — the same rule imotbgScraper2026/deploy/deploy.yaml
-  # enforces for its own deploy path.
+- name: Refuse to deploy without a resolved origin sha
   ansible.builtin.assert:
-    that: imot2026_git_dirty | length == 0
-    fail_msg: |
-      imotbgScraper2026 working tree is dirty. Commit or stash first:
-      {{ imot2026_git_dirty }}
-    success_msg: "imotbgScraper2026 working tree clean; {{ imot2026_git_sha }} is what will ship."
+    that: imot2026_git_sha is match('^[0-9a-f]{40}$')
+    fail_msg: "origin refs/heads/{{ imot2026_git_ref }} did not resolve to a sha: '{{ imot2026_git_sha }}'"
+    success_msg: "origin {{ imot2026_git_ref }} = {{ imot2026_git_sha }} is what will ship."
   delegate_to: localhost
   become: false
   run_once: true
   when: imot2026_enabled | bool
 
-- name: Sync the imotbgScraper2026 working tree to vm700
+- name: Export the origin commit into a clean ship tree on the controller
+  # fetch only adds objects; it never touches the checkout's HEAD or working
+  # tree. git archive of the exact sha is the tree that is rsynced, built and
+  # whose deploy/ templates are rendered below — so compose and .env come
+  # from the same commit as the image.
+  ansible.builtin.shell: |
+    set -euo pipefail
+    git -C "{{ imot2026_repo_dir }}" fetch --quiet origin "{{ imot2026_git_ref }}"
+    git -C "{{ imot2026_repo_dir }}" cat-file -e "{{ imot2026_git_sha }}^{commit}"
+    rm -rf "{{ imot2026_ship_dir }}"
+    mkdir -p "{{ imot2026_ship_dir }}"
+    git -C "{{ imot2026_repo_dir }}" archive "{{ imot2026_git_sha }}" | tar -x -C "{{ imot2026_ship_dir }}"
+  args:
+    executable: /bin/bash
+  changed_when: true
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: imot2026_enabled | bool
+
+- name: Sync the imotbgScraper2026 ship tree to vm700
   ansible.posix.synchronize:
-    src: "{{ imot2026_repo_dir }}/"
+    src: "{{ imot2026_ship_dir }}/"
     dest: "{{ imot2026_stack_dir }}/src-tree/"
     delete: true
     rsync_opts:
@@ -331,7 +351,7 @@
   # see the header of this file for why a second copy is not kept here. Must
   # be rendered before docker_compose_v2 reads it, same as caddy.yaml.
   ansible.builtin.template:
-    src: "{{ imot2026_repo_dir }}/deploy/docker-compose.yml.j2"
+    src: "{{ imot2026_ship_dir }}/deploy/docker-compose.yml.j2"
     dest: "{{ imot2026_stack_dir }}/docker-compose.yml"
     owner: root
     group: root
@@ -341,7 +361,7 @@
 - name: Render .env from imotbgScraper2026's own template
   # Secrets only reach a container as environment variables, never logged.
   ansible.builtin.template:
-    src: "{{ imot2026_repo_dir }}/deploy/env.j2"
+    src: "{{ imot2026_ship_dir }}/deploy/env.j2"
     dest: "{{ imot2026_stack_dir }}/.env"
     owner: root
     group: root
@@ -409,6 +429,32 @@
     chdir: "{{ imot2026_stack_dir }}"
   register: imot2026_ps
   changed_when: false
+  when: imot2026_enabled | bool
+
+- name: Read back the sha every running imot2026-app container carries
+  # IMOT2026_GIT_SHA is baked into the image by the Dockerfile's GIT_SHA arg,
+  # so it describes the image the container actually runs, not the tag asked for.
+  ansible.builtin.shell: |
+    set -euo pipefail
+    ids=$(docker ps -aq --filter label=com.docker.compose.project={{ imot2026_project_name }})
+    [ -n "$ids" ] || { echo "no containers in the project" >&2; exit 1; }
+    docker inspect --format '{{ '{{' }}.Name{{ '}}' }} {{ '{{' }}.Config.Image{{ '}}' }} {{ '{{' }}range .Config.Env{{ '}}' }}{{ '{{' }}println .{{ '}}' }}{{ '{{' }}end{{ '}}' }}' $ids \
+      | awk '/^\// {name=$1; img=$2} /^IMOT2026_GIT_SHA=/ && img ~ /^imot2026-app:/ {sub(/^IMOT2026_GIT_SHA=/, ""); print name, $0}'
+  args:
+    executable: /bin/bash
+  register: imot2026_live_shas
+  changed_when: false
+  when: imot2026_enabled | bool
+
+- name: Assert the live sha equals the resolved origin sha
+  ansible.builtin.assert:
+    that:
+      - imot2026_live_shas.stdout_lines | length > 0
+      - imot2026_live_shas.stdout_lines | map('split') | map('last') | unique | list == [imot2026_git_sha]
+    fail_msg: |
+      live imot2026-app sha does not match origin {{ imot2026_git_ref }} {{ imot2026_git_sha }}:
+      {{ imot2026_live_shas.stdout }}
+    success_msg: "all {{ imot2026_live_shas.stdout_lines | length }} imot2026-app containers run origin {{ imot2026_git_ref }} {{ imot2026_git_sha }}"
   when: imot2026_enabled | bool
 
 - name: Report stack readiness
