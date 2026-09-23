@@ -153,6 +153,11 @@
   tags:
     - forgejo_stack
 
+- name: Import central observability stack setup (T-1001)
+  import_tasks: observability.yaml
+  tags:
+    - observability_stack
+
 - name: Verify Playwright‑MCP Docker image builds and contains Chromium
   block:
     - name: Build Playwright‑MCP Docker image on localhost

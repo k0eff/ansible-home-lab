@@ -1,0 +1,88 @@
+---
+# Central observability stack on vm700 (T-1001): Alloy -> Mimir, Grafana with Mimir as datasource.
+# Spec: imotbgScraper2026/docs/architecture/observability-2026-09-05.md §5.1-§5.6. Placement is
+# vm700 for every container (T-1017, owner 2026-09-10). Supersedes the koeff-ai-stack Prometheus
+# (headroom.yaml, koeff_ai_stack_state=absent since 2026-09-20): one scraper, one datasource.
+# Enable deliberately:
+#   --tags observability_stack -e observability_enabled=true
+
+- name: Read the Grafana datasource uid from the application repo (spec §5.6 D4)
+  ansible.builtin.set_fact:
+    observability_datasource_uid: "{{ lookup('file', observability_datasource_uid_file) | trim }}"
+  when: observability_enabled | bool
+
+- name: Assert the datasource uid file holds exactly one bare value
+  ansible.builtin.assert:
+    that:
+      - observability_datasource_uid | length > 0
+      - "'\n' not in observability_datasource_uid"
+    fail_msg: "{{ observability_datasource_uid_file }} must hold one non-empty line."
+  when: observability_enabled | bool
+
+- name: Ensure observability directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ observability_stack_dir }}", owner: "root", mode: "0755" }
+    - { path: "{{ observability_data_dir }}/mimir", owner: "root", mode: "0755" }
+    - { path: "{{ observability_data_dir }}/alloy", owner: "root", mode: "0755" }
+    # Grafana image runs as uid 472.
+    - { path: "{{ observability_data_dir }}/grafana", owner: "472", mode: "0750" }
+  loop_control:
+    label: "{{ item.path }}"
+  when: observability_enabled | bool
+
+- name: Render observability configs
+  ansible.builtin.template:
+    src: "observability/{{ item.src }}.j2"
+    dest: "{{ observability_stack_dir }}/{{ item.src }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: docker-compose.yml, mode: "0644" }
+    - { src: mimir.yaml, mode: "0644" }
+    - { src: config.alloy, mode: "0644" }
+    - { src: grafana-datasources.yaml, mode: "0644" }
+    # Credentials from protected/: never world-readable.
+    - { src: alloy.env, mode: "0600" }
+    - { src: grafana.env, mode: "0600" }
+  loop_control:
+    label: "{{ item.src }}"
+  no_log: "{{ item.src.endswith('.env') }}"
+  when: observability_enabled | bool
+
+# No remove_orphans: see the 2026-08-31 incident in headroom.yaml.
+- name: Start the observability stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ observability_stack_dir }}"
+    project_name: observability
+    state: present
+    build: never
+  when: observability_enabled | bool
+
+- name: Wait for Mimir to report ready
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ observability_mimir_port }}/ready"
+    status_code: 200
+  register: observability_mimir_ready
+  retries: 24
+  delay: 5
+  until: observability_mimir_ready.status == 200
+  changed_when: false
+  when: observability_enabled | bool
+
+- name: Wait for Grafana to report healthy
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ observability_grafana_port }}/api/health"
+    status_code: 200
+  register: observability_grafana_health
+  retries: 24
+  delay: 5
+  until: observability_grafana_health.status == 200
+  changed_when: false
+  when: observability_enabled | bool

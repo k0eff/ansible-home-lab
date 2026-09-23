@@ -1,0 +1,27 @@
+{
+  "id": "033",
+  "branch": "forge/T-1001--dev--e1",
+  "name": "core--observability-alloy-mimir-grafana",
+  "category": "core",
+  "description": "T-1001 (#462): central observability stack on vm700 \u2014 Alloy discovers containers labelled observability.metrics=true via docker.sock, scrapes :9464 as job imot2026 plus node/cadvisor/mongodb/kafka exporters, remote_writes to a monolithic Mimir (filesystem, 90d, 100k series); Grafana provisioned with Mimir as datasource whose uid is read from imotbgScraper2026/deploy/observability/DATASOURCE_UID (spec \u00a75.6 D4). Names follow spec \u00a75.6 D2 (project observability, no imot2026 in stack identifiers). Secrets (grafana_admin_password, observability_mongo_exporter_uri) come from protected/ into 0600 env files.",
+  "implementation": {
+    "files": [
+      "roles/ops-settings/tasks/observability.yaml",
+      "roles/ops-settings/tasks/main.yaml",
+      "roles/ops-settings/defaults/main.yaml",
+      "roles/ops-settings/templates/observability/*.j2"
+    ]
+  },
+  "validation": {
+    "type": "render",
+    "checks": [
+      "All six templates render locally with fake secrets; compose/mimir/datasource parse as YAML",
+      "Rendered datasource uid equals the application repo's DATASOURCE_UID (mimir-central)",
+      "docker compose config -q accepts the rendered compose",
+      "ansible-playbook --syntax-check playbook-index.yaml passes",
+      "LIVE (not done by this worker, deploy forbidden): --tags observability_stack -e observability_enabled=true, then up{job=\"imot2026\"} shows 20 targets at 1 in Grafana Explore"
+    ],
+    "result": "2026-09-24 render-only: local render play ok=2 failed=0; datasource uid rendered 'mimir-central' from DATASOURCE_UID; YAML parse ok; docker compose config -q ok; playbook-index.yaml --syntax-check ok. Alloy River syntax not machine-checked (no alloy binary pulled). Live deploy + up{job=\"imot2026\"} check NOT done (worker forbidden to deploy)."
+  },
+  "status": "pass"
+}

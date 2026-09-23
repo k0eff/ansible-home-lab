@@ -1,0 +1,66 @@
+# {{ ansible_managed }} — central observability stack (T-1001). Not imot2026-specific (spec §5.6 D2).
+name: observability
+
+services:
+  mimir:
+    image: {{ observability_mimir_image }}
+    container_name: observability-mimir
+    restart: unless-stopped
+    command: ["-config.file=/etc/mimir/mimir.yaml"]
+    volumes:
+      - ./mimir.yaml:/etc/mimir/mimir.yaml:ro
+      - {{ observability_data_dir }}/mimir:/data
+    ports:
+      - "127.0.0.1:{{ observability_mimir_port }}:9009"
+    mem_limit: 1g
+
+  alloy:
+    image: {{ observability_alloy_image }}
+    container_name: observability-alloy
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    env_file:
+      - ./alloy.env
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - {{ observability_data_dir }}/alloy:/var/lib/alloy/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      - default
+{% for net in observability_app_networks %}
+      - {{ net }}
+{% endfor %}
+    depends_on:
+      - mimir
+    mem_limit: 512m
+
+  grafana:
+    image: {{ observability_grafana_image }}
+    container_name: observability-grafana
+    restart: unless-stopped
+    user: "472"
+    env_file:
+      - ./grafana.env
+    volumes:
+      - {{ observability_data_dir }}/grafana:/var/lib/grafana
+      - ./grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+    ports:
+      - "127.0.0.1:{{ observability_grafana_port }}:3000"
+    depends_on:
+      - mimir
+    mem_limit: 512m
+
+networks:
+  default:
+    name: observability
+{% for net in observability_app_networks %}
+  {{ net }}:
+    external: true
+{% endfor %}

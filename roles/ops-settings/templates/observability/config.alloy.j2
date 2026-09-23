@@ -1,0 +1,112 @@
+// {{ ansible_managed }} — central Alloy on vm700 (T-1001, spec §5.2).
+// Targets: any container labelled observability.metrics=true, whatever its compose project.
+// Project identity arrives as Docker's own com.docker.compose.project label (spec §5.6 D2).
+
+discovery.docker "compose" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "app" {
+  targets = discovery.docker.compose.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_observability_metrics"]
+    regex         = "true"
+    action        = "keep"
+  }
+  // Keep one address per container: the one on the application network, port 9464.
+  rule {
+    source_labels = ["__meta_docker_network_name"]
+    regex         = "{{ observability_app_networks | join('|') }}"
+    action        = "keep"
+  }
+  rule {
+    source_labels = ["__meta_docker_network_ip"]
+    replacement   = "$1:9464"
+    target_label  = "__address__"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "(?:imot2026-)?(.*)"
+    replacement   = "$1"
+    target_label  = "service"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "project"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+// job="imot2026" is the application job name A15 (up{job=~"imot2026|kafka|mongodb"}) relies on.
+prometheus.scrape "app" {
+  targets         = discovery.relabel.app.output
+  job_name        = "imot2026"
+  scrape_interval = "30s"
+  forward_to      = [prometheus.relabel.host.receiver]
+}
+
+prometheus.exporter.unix "host" {
+  procfs_path = "/host/proc"
+  sysfs_path  = "/host/sys"
+  rootfs_path = "/rootfs"
+  enable_collectors = ["mountstats", "nfs"]
+}
+
+prometheus.exporter.cadvisor "docker" {
+  docker_only = true
+}
+
+prometheus.exporter.mongodb "imot" {
+  mongodb_uri = sys.env("MONGO_EXPORTER_URI")
+}
+
+prometheus.exporter.kafka "imot" {
+  kafka_uris = ["imot2026-kafka:9092"]
+}
+
+prometheus.scrape "node" {
+  targets         = prometheus.exporter.unix.host.targets
+  job_name        = "node"
+  scrape_interval = "15s"
+  forward_to      = [prometheus.relabel.host.receiver]
+}
+
+prometheus.scrape "cadvisor" {
+  targets         = prometheus.exporter.cadvisor.docker.targets
+  job_name        = "cadvisor"
+  scrape_interval = "15s"
+  forward_to      = [prometheus.relabel.host.receiver]
+}
+
+prometheus.scrape "mongodb" {
+  targets         = prometheus.exporter.mongodb.imot.targets
+  job_name        = "mongodb"
+  scrape_interval = "15s"
+  forward_to      = [prometheus.relabel.host.receiver]
+}
+
+prometheus.scrape "kafka" {
+  targets         = prometheus.exporter.kafka.imot.targets
+  job_name        = "kafka"
+  scrape_interval = "15s"
+  forward_to      = [prometheus.relabel.host.receiver]
+}
+
+prometheus.relabel "host" {
+  rule {
+    target_label = "host"
+    replacement  = "vm700"
+  }
+  forward_to = [prometheus.remote_write.mimir.receiver]
+}
+
+prometheus.remote_write "mimir" {
+  endpoint {
+    url = "http://observability-mimir:9009/api/v1/push"
+  }
+}

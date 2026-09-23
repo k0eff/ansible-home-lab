@@ -622,3 +622,27 @@ forgejo_domain: forgejo.koeff.com
 forgejo_http_port: 3000
 forgejo_ssh_port: 2222
 forgejo_mem_limit: 1g
+
+# Central observability stack (T-1001, spec imotbgScraper2026/docs/architecture/observability-2026-09-05.md
+# §5.1-§5.6). Compose project `observability` on vm700 (T-1017: «задължително на вм700»). Stack
+# identifiers never contain imot2026 (spec §5.6 D2); discovery is by the Docker label
+# observability.metrics=true that each application puts on its own services.
+# Enable deliberately: --tags observability_stack -e observability_enabled=true
+observability_enabled: false
+observability_stack_dir: /opt/observability
+observability_data_dir: /var/lib/docker-data/observability
+observability_alloy_image: grafana/alloy:v1.9.2
+observability_mimir_image: grafana/mimir:2.16.0
+observability_grafana_image: grafana/grafana:12.0.2
+# Forgejo already owns host port 3000; Grafana is loopback-only on 3001 until a Caddy route exists.
+observability_grafana_port: 3001
+observability_mimir_port: 9009
+observability_mimir_retention: 90d
+observability_mimir_max_series: 100000
+# Application networks Alloy joins so it can reach :9464 on labelled containers.
+observability_app_networks:
+  - imot2026-net
+# The Grafana datasource uid lives in ONE place, the application repo (spec §5.6 D4).
+observability_datasource_uid_file: "{{ imot2026_repo_dir }}/deploy/observability/DATASOURCE_UID"
+# Secrets come from protected/: grafana_admin_password, observability_mongo_exporter_uri
+# (read-only Mongo user). No default on purpose — a missing value fails the render.
