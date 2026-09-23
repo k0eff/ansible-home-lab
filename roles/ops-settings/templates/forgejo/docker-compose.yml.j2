@@ -22,6 +22,9 @@ services:
       FORGEJO__service__DISABLE_REGISTRATION: "true"
       FORGEJO__service__REQUIRE_SIGNIN_VIEW: "true"
       FORGEJO__repository__DEFAULT_PRIVATE: "private"
+      # Push-to-create for the owner's own account: `git push` to a repo that does not exist yet
+      # creates it (private). Lets the forge create its ledger repos without a write:user token.
+      FORGEJO__repository__ENABLE_PUSH_CREATE_USER: "true"
       FORGEJO__actions__ENABLED: "true"
       FORGEJO__log__LEVEL: "Info"
     volumes:
