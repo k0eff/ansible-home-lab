@@ -1,0 +1,20 @@
+# Lint gate for .forge-verify (#1564). Catches what breaks a play — bad YAML, duplicate keys,
+# ambiguous truthy values — and leaves out the style rules the existing roles never followed
+# (Jinja braces, long shell lines, indentation drift). Tighten a rule only together with the
+# files it would turn red.
+extends: default
+
+ignore: |
+  protected/
+  .claude/
+  evals/
+
+rules:
+  line-length: disable
+  braces: disable
+  indentation: disable
+  trailing-spaces: disable
+  empty-lines: disable
+  document-start: disable
+  comments: disable
+  comments-indentation: disable

@@ -1,0 +1,3 @@
+# wf-lander runs this on the merge of a ticket branch into current main; exit 0 = may land (#1564).
+# yamllint, playbook syntax checks (no host contacted) and the roles' python unit tests.
+sh scripts/forge-verify.sh
