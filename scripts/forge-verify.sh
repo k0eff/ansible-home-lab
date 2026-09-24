@@ -6,6 +6,7 @@
 #   2. ansible-playbook --syntax-check on every playbook (a superset of the changed roles' plays)
 #   3. py_compile + unittest (test_*.py) for the python shipped under roles/*/files
 set -eu
+export PYTHONDONTWRITEBYTECODE=1
 cd "$(dirname "$0")/.."
 
 echo "== yamllint"
