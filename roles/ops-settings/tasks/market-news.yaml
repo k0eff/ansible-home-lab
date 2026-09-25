@@ -41,6 +41,49 @@
   no_log: true
   when: market_news_enabled | bool
 
+- name: Read the data-provider keys from the controller keychain
+  # T-28 (D-0005): EODHD, Tiingo, Finnhub, FMP. The values live only in the macOS keychain of the
+  # controller and in the 0600 .env on vm700; failed_when is off so the assert below can name the
+  # missing key instead of no_log hiding it.
+  ansible.builtin.command: security find-generic-password -s {{ item.value }} -w
+  loop: "{{ market_news_provider_keychain_items | dict2items }}"
+  loop_control:
+    label: "{{ item.key }} <- keychain {{ item.value }}"
+  register: market_news_provider_keys
+  changed_when: false
+  failed_when: false
+  no_log: true
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: market_news_enabled | bool
+
+- name: Refuse to render an empty data-provider key
+  ansible.builtin.assert:
+    that:
+      - market_news_missing_provider_keys | length == 0
+    fail_msg: >-
+      Missing or empty in the controller keychain: {{ market_news_missing_provider_keys | join(', ') }}.
+      Add with: security add-generic-password -s <service> -a "$USER" -w
+    quiet: true
+  vars:
+    market_news_missing_provider_keys: >-
+      {{ market_news_provider_keys.results
+         | rejectattr('rc', 'equalto', 0) | map(attribute='item') | map(attribute='value') | list
+         + market_news_provider_keys.results
+         | selectattr('rc', 'equalto', 0) | selectattr('stdout', 'equalto', '')
+         | map(attribute='item') | map(attribute='value') | list }}
+  run_once: true
+  when: market_news_enabled | bool
+
+- name: Collect the data-provider keys for the .env
+  ansible.builtin.set_fact:
+    market_news_provider_env: >-
+      {{ dict(market_news_provider_keys.results | map(attribute='item') | map(attribute='key')
+         | zip(market_news_provider_keys.results | map(attribute='stdout') | map('trim'))) }}
+  no_log: true
+  when: market_news_enabled | bool
+
 # --- ship the origin commit ------------------------------------------------------
 
 - name: Resolve the market-news commit to ship from origin

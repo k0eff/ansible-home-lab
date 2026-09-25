@@ -1,0 +1,18 @@
+{
+  "id": "035",
+  "branch": "forge/T-28--dev--e1",
+  "name": "core--market-news-provider-keys",
+  "category": "core",
+  "status": "pass",
+  "description": "T-28 (D-0005): market-news role reads eodhd/tiingo/finnhub/fmp api tokens from the controller macOS keychain and renders EODHD_TOKEN, TIINGO_TOKEN, FINNHUB_TOKEN, FMP_TOKEN and SEC_USER_AGENT into the 0600 .env on vm700; a missing or empty keychain item fails the play naming the item.",
+  "implementation": {"file": "roles/ops-settings/tasks/market-news.yaml", "change": "keychain read + assert + set_fact; defaults map env var -> keychain service; env.j2 renders the five vars"},
+  "validation": {
+    "type": "unit",
+    "checks": [
+      "localhost play of the new tasks: all four keys read (non-empty), env rendered; bogus item -> 'Missing or empty in the controller keychain: no-such-key-t28'",
+      "git grep of each key value in ansible-home-lab and market-news origin/main outside protected/: 0 hits",
+      "sh scripts/forge-verify.sh green",
+      "NOT DONE: live run on vm700 (needs deploy); market-news compose must still pass these vars into the worker service's environment"
+    ]
+  }
+}

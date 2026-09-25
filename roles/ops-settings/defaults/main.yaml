@@ -648,3 +648,12 @@ market_news_pg_port: 18732
 market_news_temporal_ui_port: 18733
 market_news_prometheus_port: 18734
 market_news_grafana_port: 18735
+# Data-provider keys (T-28, D-0005): env var -> macOS keychain service name on the controller
+# (`security find-generic-password -s <service> -w`). Values never enter any file under git.
+market_news_provider_keychain_items:
+  EODHD_TOKEN: eodhd-api-token
+  TIINGO_TOKEN: tiingo-api-token
+  FINNHUB_TOKEN: finnhub-api-token
+  FMP_TOKEN: fmp-api-token
+# SEC fair-access rule: every EDGAR request carries this User-Agent (D-0005). Not a secret.
+market_news_sec_user_agent: "market-news kr@koeff.com"
