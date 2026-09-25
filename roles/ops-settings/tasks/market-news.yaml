@@ -1,0 +1,232 @@
+---
+# market-news stack on vm700 (#42, T-25) — Postgres, Kafka (D-0002), Temporal + UI, Prometheus,
+# Grafana, Alloy and the worker-metrics exporter, exactly as market-news/deploy/docker-compose.yml
+# defines them. Own compose project (market-news), own stack dir, own named volumes; nothing
+# shared with imot2026 or forgejo.
+#
+# Same "one source, no copy" choice as tasks/imot2026.yaml: the compose file is NOT re-authored
+# here. The ORIGIN sha of market_news_git_ref is exported with git archive and rsynced whole
+# (deploy/ plus worker/, which worker-metrics mounts as ../worker), and compose runs from
+# src-tree/deploy. What this repo owns is the .env (templates/market-news/env.j2) and the secrets
+# behind it, which are generated on the controller into protected/market-news/ — the private
+# submodule — and never into market-news or any public repo.
+#
+# Every image is a published upstream image; nothing is built on the host.
+#
+# Owner decision D-0003 («Ансибъл деплой - ок») authorises the live run. Enable deliberately:
+#   ansible-playbook -i protected/inventories/inventory-main.yaml \
+#     playbook-index.yaml -l ops --tags market_news_stack -e market_news_enabled=true \
+#     -e market_news_loki_url=http://<loki-host>:3100
+
+- name: Assert market-news settings a start depends on are present
+  ansible.builtin.assert:
+    that:
+      - market_news_loki_url | length > 0
+    fail_msg: >-
+      market_news_loki_url is empty. The compose file requires LOKI_URL (alloy pushes there,
+      grafana reads it); pass -e market_news_loki_url=... or set it in protected group_vars.
+  when: market_news_enabled | bool
+
+# --- secrets (controller, private submodule only) ------------------------------
+
+- name: Generate any missing market-news secret into protected/market-news/
+  # ansible.builtin.password creates the file on first use and returns its content on every later
+  # run, so this is idempotent: an existing secret is never rotated. The directory is inside the
+  # private protected/ submodule; the files are committed there by the operator, never here.
+  ansible.builtin.set_fact:
+    market_news_secrets:
+      postgres_password: "{{ lookup('ansible.builtin.password', market_news_secrets_dir + '/postgres_password', length=32, chars=['ascii_letters', 'digits']) }}"
+      marketnews_db_password: "{{ lookup('ansible.builtin.password', market_news_secrets_dir + '/marketnews_db_password', length=32, chars=['ascii_letters', 'digits']) }}"
+      grafana_admin_password: "{{ lookup('ansible.builtin.password', market_news_secrets_dir + '/grafana_admin_password', length=32, chars=['ascii_letters', 'digits']) }}"
+  no_log: true
+  when: market_news_enabled | bool
+
+# --- ship the origin commit ------------------------------------------------------
+
+- name: Resolve the market-news commit to ship from origin
+  # As in imot2026.yaml (T-1537): what ships is origin's sha, never the controller checkout's HEAD.
+  ansible.builtin.set_fact:
+    market_news_git_sha: >-
+      {{ (lookup('pipe', 'git -C ' + market_news_repo_dir
+          + ' ls-remote --exit-code origin refs/heads/' + market_news_git_ref)
+          .split() | first) | default('') }}
+  when: market_news_enabled | bool
+
+- name: Refuse to deploy without a resolved origin sha
+  ansible.builtin.assert:
+    that: market_news_git_sha is match('^[0-9a-f]{40}$')
+    fail_msg: "origin refs/heads/{{ market_news_git_ref }} did not resolve to a sha: '{{ market_news_git_sha }}'"
+    success_msg: "origin {{ market_news_git_ref }} = {{ market_news_git_sha }} is what will ship."
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: market_news_enabled | bool
+
+- name: Export the origin commit into a clean ship tree on the controller
+  ansible.builtin.shell: |
+    set -euo pipefail
+    git -C "{{ market_news_repo_dir }}" fetch --quiet origin "{{ market_news_git_ref }}"
+    git -C "{{ market_news_repo_dir }}" cat-file -e "{{ market_news_git_sha }}^{commit}"
+    rm -rf "{{ market_news_ship_dir }}"
+    mkdir -p "{{ market_news_ship_dir }}"
+    git -C "{{ market_news_repo_dir }}" archive "{{ market_news_git_sha }}" deploy worker \
+      | tar -x -C "{{ market_news_ship_dir }}"
+  args:
+    executable: /bin/bash
+  changed_when: true
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: market_news_enabled | bool
+
+- name: Ensure market-news directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ market_news_stack_dir }}"
+    - "{{ market_news_backup_dir }}"
+  become: true
+  when: market_news_enabled | bool
+
+- name: Sync the market-news ship tree to vm700
+  ansible.posix.synchronize:
+    src: "{{ market_news_ship_dir }}/"
+    dest: "{{ market_news_stack_dir }}/src-tree/"
+    delete: true
+    rsync_opts:
+      # Rendered below; rsync must never delete it between runs.
+      - "--exclude=/deploy/.env"
+      - "--exclude=node_modules"
+      - "--timeout=300"
+  when: market_news_enabled | bool
+
+- name: Render the market-news .env
+  # Compose reads .env from the project directory; secrets reach containers only as environment.
+  ansible.builtin.template:
+    src: market-news/env.j2
+    dest: "{{ market_news_stack_dir }}/src-tree/deploy/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: market_news_enabled | bool
+
+- name: Start the market-news stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ market_news_stack_dir }}/src-tree/deploy"
+    project_name: "{{ market_news_project_name }}"
+    state: present
+    pull: missing
+    build: never
+    remove_orphans: true
+  when: market_news_enabled | bool
+
+# --- health gate: each assertion fails the play -------------------------------
+
+- name: List the services the compose file defines
+  ansible.builtin.command: docker compose -p {{ market_news_project_name }} config --services
+  args:
+    chdir: "{{ market_news_stack_dir }}/src-tree/deploy"
+  register: market_news_services
+  changed_when: false
+  when: market_news_enabled | bool
+
+- name: Wait until every market-news service is running
+  ansible.builtin.command: docker compose -p {{ market_news_project_name }} ps --all --format json
+  args:
+    chdir: "{{ market_news_stack_dir }}/src-tree/deploy"
+  register: market_news_ps
+  changed_when: false
+  vars:
+    # `ps --format json` is one object per line on compose v2.21+, one array before that.
+    market_news_ps_rows: >-
+      {{ (market_news_ps.stdout | from_json) if market_news_ps.stdout.startswith('[')
+         else (market_news_ps.stdout_lines | map('from_json') | list) }}
+  until: >-
+    (market_news_ps_rows | selectattr('State', 'equalto', 'running') | map(attribute='Service') | list | sort)
+    == (market_news_services.stdout_lines | sort)
+  retries: 30
+  delay: 5
+  when: market_news_enabled | bool
+
+- name: Assert Postgres accepts a query
+  ansible.builtin.command: >-
+    docker compose -p {{ market_news_project_name }} exec -T postgres
+    psql -U {{ market_news_postgres_user }} -d postgres -tAc 'select 1'
+  args:
+    chdir: "{{ market_news_stack_dir }}/src-tree/deploy"
+  register: market_news_pg
+  changed_when: false
+  retries: 12
+  delay: 5
+  until: market_news_pg.rc == 0 and market_news_pg.stdout | trim == '1'
+  when: market_news_enabled | bool
+
+- name: Assert Kafka round-trips a produced message
+  # A unique token per run, produced then consumed back from the beginning of a dedicated topic.
+  ansible.builtin.shell: |
+    set -euo pipefail
+    token="ansible-{{ 99999999 | random }}-$(date +%s)"
+    dc() { docker compose -p {{ market_news_project_name }} exec -T kafka "$@"; }
+    dc /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
+      --create --if-not-exists --topic {{ market_news_kafka_health_topic }} >/dev/null
+    echo "$token" | dc /opt/kafka/bin/kafka-console-producer.sh \
+      --bootstrap-server localhost:9092 --topic {{ market_news_kafka_health_topic }}
+    dc /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+      --topic {{ market_news_kafka_health_topic }} --from-beginning --timeout-ms 20000 2>/dev/null \
+      | grep -qx "$token"
+    echo "round trip ok: $token"
+  args:
+    executable: /bin/bash
+    chdir: "{{ market_news_stack_dir }}/src-tree/deploy"
+  register: market_news_kafka_rt
+  changed_when: false
+  retries: 6
+  delay: 10
+  until: market_news_kafka_rt.rc == 0
+  when: market_news_enabled | bool
+
+- name: Assert the Temporal UI answers
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ market_news_temporal_ui_port }}/"
+    status_code: 200
+  register: market_news_temporal_ui
+  retries: 24
+  delay: 5
+  until: market_news_temporal_ui.status == 200
+  when: market_news_enabled | bool
+
+- name: Assert Grafana answers
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ market_news_grafana_port }}/api/health"
+    status_code: 200
+  register: market_news_grafana
+  retries: 24
+  delay: 5
+  until: market_news_grafana.status == 200 and market_news_grafana.json.database | default('') == 'ok'
+  when: market_news_enabled | bool
+
+- name: Assert Prometheus reports every target up
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ market_news_prometheus_port }}/api/v1/targets?state=active"
+    return_content: true
+  register: market_news_prom_targets
+  retries: 24
+  delay: 10
+  until: >-
+    market_news_prom_targets.json.data.activeTargets | length > 0
+    and (market_news_prom_targets.json.data.activeTargets | rejectattr('health', 'equalto', 'up') | list | length) == 0
+  when: market_news_enabled | bool
+
+- name: Report stack readiness
+  ansible.builtin.debug:
+    msg: >-
+      market-news {{ market_news_git_sha }} is running on vm700: services
+      {{ market_news_services.stdout_lines | sort | join(', ') }} all running; Postgres query ok;
+      {{ market_news_kafka_rt.stdout }}; Temporal UI and Grafana answer;
+      {{ market_news_prom_targets.json.data.activeTargets | length }} Prometheus targets up.
+  when: market_news_enabled | bool

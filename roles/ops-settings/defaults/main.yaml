@@ -622,3 +622,29 @@ forgejo_domain: forgejo.koeff.com
 forgejo_http_port: 3000
 forgejo_ssh_port: 2222
 forgejo_mem_limit: 1g
+
+# --- market-news (#42, T-25) -------------------------------------------------
+# market-news/deploy compose stack on vm700; see tasks/market-news.yaml and docs/market-news.md.
+# Enable deliberately: --tags market_news_stack -e market_news_enabled=true
+market_news_enabled: false
+# Controller checkout, used only as a git object store: origin's sha of market_news_git_ref ships.
+market_news_repo_dir: "{{ playbook_dir }}/../market-news"
+market_news_git_ref: main
+market_news_ship_dir: "{{ lookup('env', 'TMPDIR') | default('/tmp', true) | regex_replace('/$', '') }}/market-news-ship"
+# Private submodule only — generated secrets land here, never in a public repo.
+market_news_secrets_dir: "{{ playbook_dir }}/protected/market-news"
+market_news_project_name: market-news
+market_news_stack_dir: /opt/market-news
+market_news_backup_dir: /var/lib/docker-data/market-news-backups
+market_news_postgres_user: marketnews_admin
+market_news_db: marketnews
+market_news_db_user: marketnews
+market_news_grafana_admin_user: admin
+# Required by the compose file (alloy push + grafana datasource); no default Loki exists yet.
+market_news_loki_url: ""
+market_news_kafka_health_topic: ansible-healthcheck
+# 127.0.0.1-bound host ports, matching deploy/docker-compose.yml's defaults.
+market_news_pg_port: 18732
+market_news_temporal_ui_port: 18733
+market_news_prometheus_port: 18734
+market_news_grafana_port: 18735
