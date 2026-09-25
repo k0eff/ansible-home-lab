@@ -34,6 +34,8 @@ import subprocess
 import sys
 from collections import Counter
 
+import picture_check
+
 HAMMING_MAX = 8           # of 64 bits. Re-encoding moves a few; a different shot ~32.
 DURATION_TOL = 1.5        # seconds
 ASPECT_TOL = 0.02         # 2%
@@ -166,6 +168,19 @@ def compare(gp, orig):
         return "rejected", f"picture differs, hamming {dist}/64", dist
     reasons.append(f"picture hamming {dist}/64")
 
+    # Layer 3b — edited or re-encoded (#1558). The hash only says "same shot"; a
+    # Photomatix render, a spot-removal retouch or a .picasaoriginals twin passes it.
+    def seek(d):
+        return d * 0.25 if d and d > 2 else None
+    fg = picture_check.decode(gp, seek(pg["duration"]))
+    fo = picture_check.decode(orig, seek(po["duration"]))
+    if fg is None or fo is None:
+        return "undecided", "could not decode the fine grid of one of the pair", dist
+    same, why = picture_check.judge(fo, fg)
+    if not same:
+        return "rejected", why, dist
+    reasons.append(why)
+
     # Corroboration only. Google rewrites capture time on upload, so a mismatch here
     # says nothing and must never reject a pair.
     eg, eo = exif_datetime(gp), exif_datetime(orig)
@@ -186,9 +201,19 @@ def main():
     the disk. One line per pair, appended and flushed, costs nothing and cannot lose
     more than the pair being measured when the power goes.
     """
-    pairs = json.load(open(sys.argv[1]))
-    out_path = sys.argv[2]
+    args = sys.argv[1:]
+    rescore = "--rescore" in args
+    args = [a for a in args if a != "--rescore"]
+    pairs = json.load(open(args[0]))
+    out_path = args[1]
     part = out_path + ".part"
+    if rescore:
+        # Input is an earlier results file (e.g. pics_out). Every pair is measured
+        # again under the current checks; a leftover .part holds old verdicts and
+        # would be resumed from, so it goes first.
+        pairs = [(r["gp"], r["orig"], r["gp_size"], r["orig_size"]) for r in pairs]
+        if os.path.exists(part):
+            os.remove(part)
 
     done = {}
     if os.path.exists(part):
@@ -216,7 +241,10 @@ def main():
             if i % 25 == 0:
                 print(f"  {i}/{len(pairs)}", file=sys.stderr, flush=True)
 
-    json.dump(out, open(out_path, "w"), indent=1)
+    with open(out_path + ".tmp", "w") as fh:
+        json.dump(out, fh, indent=1)
+    os.replace(out_path + ".tmp", out_path)
+    os.remove(part)             # every verdict is in out_path now; no leftover (#1558)
     for v, n in Counter(r["verdict"] for r in out).most_common():
         b = sum(r["gp_size"] for r in out if r["verdict"] == v)
         print(f"{v}: {n} двойки, {b/1024**3:.1f} GB в Google Photos копията")

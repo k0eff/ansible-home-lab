@@ -1,0 +1,16 @@
+{
+  "id": "033",
+  "branch": "forge/T-2128--dev--e1",
+  "name": "core--nasdedup-edit-check",
+  "category": "core",
+  "status": "pass",
+  "description": "#1558: the 9x8 dHash confirmed edited copies (Photomatix, spot removal, .picasaoriginals) as duplicates. verify_gphotos.compare now adds a 64x64 fine check (picture_check.judge: global tone, per-block residual, local contrast) and rejects edits; --rescore re-measures an earlier results file and the .part leftover is removed when a run completes.",
+  "implementation": {"file": "roles/nasdedup/files/picture_check.py", "change": "new picture_check.py + test_picture_check.py; verify_gphotos.py wired, --rescore, .part removal; tasks/main.yaml ships picture_check.py"},
+  "validation": {
+    "type": "unit",
+    "checks": [
+      "sh scripts/forge-verify.sh -> 'Ran 3 tests ... OK', 'forge-verify: green (unit-test dirs: 1)': 20 synthetic re-encodes accepted, 20 synthetic edits rejected",
+      "NOT DONE: labelled sample of 20 real NAS pairs and re-scoring pics_out on vm700 (live; needs deploy + run: verify_gphotos.py --rescore pics_out.json pics_out.v2.json)"
+    ]
+  }
+}
