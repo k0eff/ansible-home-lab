@@ -1,0 +1,13 @@
+{
+  "id": "D-0005",
+  "at": "2026-09-25T00:53:54.780Z",
+  "said": "2026-09-05",
+  "quote": "на първи въпрос относно копи са не съгласен относно асот 600 то остава да.",
+  "question": "nasdedup: is the ASOT 600 material quarantined as a duplicate?",
+  "answer": "No. ASOT 600 stays.",
+  "supersedes": null,
+  "source": {
+    "kind": "cli",
+    "ref": "#1554"
+  }
+}

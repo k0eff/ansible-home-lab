@@ -1,0 +1,13 @@
+{
+  "id": "D-0003",
+  "at": "2026-09-25T00:53:54.697Z",
+  "said": "2026-09-03",
+  "quote": "значи ако има 2 файла в 1 и съща папка - еднакви по ша - тогава остава този с по описателното име",
+  "question": "nasdedup: two SHA-identical files in one folder — which one stays?",
+  "answer": "The one with the more descriptive filename (name_score in build_quarantine.py).",
+  "supersedes": null,
+  "source": {
+    "kind": "cli",
+    "ref": "#1554"
+  }
+}

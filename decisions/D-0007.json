@@ -1,0 +1,13 @@
+{
+  "id": "D-0007",
+  "at": "2026-09-25T00:53:54.863Z",
+  "said": "2026-09-05",
+  "quote": "окей по въпроса за h264 тогава ще остане файла с по-високия битрейт другия ще го премахнем",
+  "question": "nasdedup: same footage in two encodings (Pavel-bania h264 vs hevc) — which stays?",
+  "answer": "The higher-bitrate file stays (2019-09-07--Pavel-bania.mp4, hevc 34.6 Mbps); the lower-bitrate h264 copy goes. Only owner-ruled pairs (OWNER_TRANSCODE).",
+  "supersedes": null,
+  "source": {
+    "kind": "cli",
+    "ref": "#1554"
+  }
+}

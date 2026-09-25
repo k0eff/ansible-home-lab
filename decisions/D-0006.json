@@ -1,0 +1,13 @@
+{
+  "id": "D-0006",
+  "at": "2026-09-25T00:53:54.822Z",
+  "said": "2026-09-05",
+  "quote": "четвърти въпрос да точно така това е много крехко и е супер важно да каквото и да правим там да внимаваме много ... байте да ти ще те както казах ги чистим",
+  "question": "nasdedup: are duplicates inside video/exported cleaned?",
+  "answer": "Only byte-identical (full SHA-256) copies are cleaned there; anything short of a byte match, e.g. a re-encode, is untouched unless the owner rules on that pair.",
+  "supersedes": null,
+  "source": {
+    "kind": "cli",
+    "ref": "#1554"
+  }
+}

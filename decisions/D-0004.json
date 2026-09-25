@@ -1,0 +1,13 @@
+{
+  "id": "D-0004",
+  "at": "2026-09-25T00:53:54.736Z",
+  "said": "2026-09-05",
+  "quote": "Първо: Pictures-by-years или Samsung Fold 4? Подредената колекция или суровият dump. --> Остава PIctures-by-years  Второ: при трите схеми вътре в Pictures-by-years — по година (плоско), по ден, или по месец? --> 2012/2012.08/2012-08-04 19.28.05.mp4   този формат остава",
+  "question": "nasdedup: which photo tree is canonical, and which layout inside it?",
+  "answer": "Pictures-by-years is canonical over the raw phone dump; inside it the month layout YYYY/YYYY.MM/YYYY-MM-DD HH.MM.SS.ext stays.",
+  "supersedes": null,
+  "source": {
+    "kind": "cli",
+    "ref": "#1554"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "id": "D-0008",
+  "at": "2026-09-25T00:53:54.902Z",
+  "said": "2026-09-05",
+  "quote": "node_modules където има може да се изтрият - така или иначе или са стари вече или могат да се пресъздадат",
+  "question": "nasdedup: may node_modules directories on the NAS be removed?",
+  "answer": "Yes. Every node_modules directory is regenerable and is quarantined whole.",
+  "supersedes": null,
+  "source": {
+    "kind": "cli",
+    "ref": "#1554"
+  }
+}

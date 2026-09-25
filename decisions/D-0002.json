@@ -1,0 +1,13 @@
+{
+  "id": "D-0002",
+  "at": "2026-09-25T00:53:54.657Z",
+  "said": "2026-09-03",
+  "quote": "Клиповете за Баба Кръстинка - искам да останат минимум 2 копия - 1 в exported videos, и друго в Pictures by Years (мисля че там бяха)  ICYGEN бекъпите - да остане само по 1 уникален файл, без дубликация  Candy - да остане в Pictures by years и в Projects (мисля че там беше - или exported videos)",
+  "question": "nasdedup: how many copies of baba Krastinka, ICYGEN and Candy material survive?",
+  "answer": "baba Krastinka: at least 2 copies in 2 different folders (one blessed folder short -> a second survivor is promoted); ICYGEN backups: exactly one copy of each unique file; Candy: kept in Pictures-by-years and in Projects.",
+  "supersedes": null,
+  "source": {
+    "kind": "cli",
+    "ref": "#1554"
+  }
+}
