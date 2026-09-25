@@ -106,6 +106,7 @@
     - build_quarantine.py
     - validate_quarantine.py
     - verify_trees.py
+    - raw_preview.py
 
 - name: Install the scan units
   ansible.builtin.template:
