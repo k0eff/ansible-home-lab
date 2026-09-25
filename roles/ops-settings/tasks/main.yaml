@@ -200,3 +200,7 @@
   tags:
     - imot2026_stack
 
+- name: Import market-news stack setup (T-25)
+  import_tasks: market-news.yaml
+  tags:
+    - market_news_stack
