@@ -118,17 +118,22 @@
     - nasdedup-resume.timer
   notify: Reload systemd
 
-- name: Set the scan service's boot state
-  # Disabled by default: the inventory pass is finished, and a service that starts
-  # itself on every boot would re-read four terabytes for nothing.
-  ansible.builtin.systemd_service:
-    name: nasdedup.service
-    enabled: "{{ nasdedup_service_enabled }}"
-    daemon_reload: true
-
-- name: Enable the resume timer
+- name: Set the resume timer's state
+  # The timer is the only thing that starts the scan, so it is the switch: stopped and
+  # disabled unless nasdedup_run_pass asks for a pass (#1551). Stopped first, so it
+  # cannot fire between the service being stopped and itself being stopped.
   ansible.builtin.systemd_service:
     name: nasdedup-resume.timer
-    enabled: true
-    state: started
+    enabled: "{{ nasdedup_run_pass | bool }}"
+    state: "{{ 'started' if nasdedup_run_pass | bool else 'stopped' }}"
+    daemon_reload: true
+
+- name: Set the scan service's state
+  # Never enabled at boot: a service that starts itself on every boot would re-read
+  # four terabytes for nothing; the timer resumes an unfinished pass instead. With no
+  # pass requested it is stopped — SIGTERM checkpoints the scan's state to SQLite.
+  ansible.builtin.systemd_service:
+    name: nasdedup.service
+    enabled: false
+    state: "{{ omit if nasdedup_run_pass | bool else 'stopped' }}"
     daemon_reload: true

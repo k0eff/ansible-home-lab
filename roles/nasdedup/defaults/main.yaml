@@ -28,10 +28,16 @@ nasdedup_cifs_options: "ro,vers=3.0,serverino,iocharset=utf8,actimeo=60"
 nasdedup_workers: 8
 nasdedup_tier3_workers: 4
 
-# The inventory scan is finished; the service stays disabled unless someone asks for
-# another pass. The resume timer is harmless either way — it only ever starts a unit
-# that refuses to run without the mount.
-nasdedup_service_enabled: false
+# The scan is a one-shot job (#1551), and the inventory pass is finished. false = the
+# declared state is STOPPED: nasdedup.service stopped and disabled, and the resume
+# timer stopped and disabled — the timer used to restart a hand-stopped scan within
+# five minutes. true = run a pass: the timer is enabled and started, and it starts the
+# scan (and resumes it after a reboot or a dropped mount) until the pass writes
+# duplicates.md and exits. A completed pass leaves {{ nasdedup_state }}/pass-complete,
+# which stops the timer from starting it again; begin a NEW pass with one
+# `systemctl start nasdedup.service` (the scanner removes the marker as it starts).
+# Set it back to false afterwards.
+nasdedup_run_pass: false
 
 # systemd names a mount unit after its path: /mnt/krasi -> mnt-krasi.mount. Derived
 # rather than written twice, so the two can never drift apart.

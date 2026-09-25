@@ -1,6 +1,9 @@
 # Managed by ansible (roles/nasdedup).
 [Unit]
 Description=Resume the duplicate scan once the share is mounted
+# The scan is one-shot (#1551): once a pass has completed, nothing is left to resume.
+# `nasdedup.py run` removes the marker when a new pass starts.
+ConditionPathExists=!{{ nasdedup_state }}/pass-complete
 
 [Service]
 Type=oneshot
