@@ -1074,6 +1074,9 @@ class Engine:
 
 # ---------------------------------------------------------------------------
 
+PASS_COMPLETE = "pass-complete"
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1081,9 +1084,18 @@ def main():
                     choices=["run", "inventory", "status", "report", "health"])
     ap.add_argument("--tier", type=int, choices=[1, 2, 3],
                     help="run one tier only")
+    ap.add_argument("--watch", action="store_true",
+                    help="after a complete pass, stay up and log disk usage, load and "
+                         "temperature instead of exiting")
     args = ap.parse_args()
 
     os.makedirs(STATE_DIR, exist_ok=True)
+    if args.command == "run":
+        # A new pass is under way: until it completes, the resume timer may restart it.
+        try:
+            os.remove(os.path.join(STATE_DIR, PASS_COMPLETE))
+        except FileNotFoundError:
+            pass
     engine = Engine(os.path.join(STATE_DIR, "dedup.db"))
 
     if args.command == "status":
@@ -1162,9 +1174,14 @@ def main():
         log(f"{left:,} files still mid-pipeline — rerun to continue")
         return 1
 
-    log("pipeline complete — staying up to watch disk usage, load and temperature")
-    if env("NASDEDUP_EXIT_WHEN_DONE", False, bool):
+    # A one-shot pass (#1551): the marker tells nasdedup-resume.service the pass is done,
+    # so the timer stops restarting a scan that has nothing left to do.
+    with open(os.path.join(STATE_DIR, PASS_COMPLETE), "w") as f:
+        f.write(time.strftime("%Y-%m-%dT%H:%M:%S\n"))
+    if not args.watch:
+        log("pipeline complete — duplicates.md written, exiting")
         return 0
+    log("pipeline complete — --watch: staying up to watch disk usage, load and temperature")
     while not engine.stop.is_set():
         usage = engine.sample_usage()
         if usage:

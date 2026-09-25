@@ -15,10 +15,13 @@
       "MEASURED 2026-09-06: findmnt -no SOURCE,FSTYPE,OPTIONS --target /mnt/krasi -> '//nas.local.koeff.com/Krasi cifs ro,relatime,vers=3.0,...,uid=1000,forceuid,gid=1000,forcegid,...,serverino,...,actimeo=60' — read-only, serverino present (hard links stay recognisable), mounted as the koeffuser uid",
       "MEASURED 2026-09-06: touch /mnt/krasi/.wtest -> \"cannot touch '/mnt/krasi/.wtest': Read-only file system\", and the file does not exist afterwards. The role also asserts this itself and fails the play if the share ever comes back writable",
       "MEASURED 2026-09-06: 14 directories readable under /mnt/krasi (backup, Candy, for-review, install, the sparsebundle, ...), so the read-only account can still see everything the scan needs",
-      "MEASURED 2026-09-06: systemctl is-enabled -> mnt-krasi.mount enabled, nasdedup.service disabled, nasdedup-resume.timer enabled; systemctl is-active mnt-krasi.mount -> active. The mount now returns on its own after a reboot, which is the failure this role exists to close",
+      "MEASURED 2026-09-06: systemctl is-enabled -> mnt-krasi.mount enabled, nasdedup.service disabled, nasdedup-resume.timer enabled; systemctl is-active mnt-krasi.mount -> active. The mount now returns on its own after a reboot, which is the failure this role exists to close [SUPERSEDED by #1551: the timer is now disabled unless nasdedup_run_pass is true]",
       "MEASURED 2026-09-06: /etc/nasdedup-krasi.cred is 600 root:root; its values come from nas_smb_user / nas_smb_password in protected/inventories/group_vars/all.yaml and appear nowhere in this repository",
-      "KNOWN LIMIT: the reboot recovery is verified by unit state (enabled) and by a handler-driven remount cycle, not by an actual reboot of vm700 — rebooting the host would stop every container on it and was not warranted for this change"
+      "KNOWN LIMIT: the reboot recovery is verified by unit state (enabled) and by a handler-driven remount cycle, not by an actual reboot of vm700 — rebooting the host would stop every container on it and was not warranted for this change",
+      "#1551 (2026-09-25): the scan is one-shot — nasdedup.py run exits 0 after writing duplicates.md and leaves state/pass-complete; the old watch loop runs only with --watch",
+      "#1551 (2026-09-25): nasdedup_run_pass (default false) is the declared stopped state: nasdedup.service stopped+disabled, nasdedup-resume.timer stopped+disabled; nasdedup-resume.service carries ConditionPathExists=!state/pass-complete so a finished pass is never restarted",
+      "#1551 EXPECTED, NOT YET MEASURED (worker has no host access): ansible-playbook ... -l ops --tags nasdedup twice -> second run changed=0; systemctl is-active nasdedup.service nasdedup-resume.timer -> inactive / inactive, and still inactive 15 min later; systemctl is-enabled nasdedup.service nasdedup-resume.timer -> disabled / disabled"
     ]
   },
-  "status": "pass"
+  "status": "pending"
 }
