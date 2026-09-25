@@ -1,0 +1,13 @@
+{
+  "id": "D-0001",
+  "at": "2026-09-25T00:53:54.618Z",
+  "said": "2026-09-05",
+  "quote": "на баба кръстинка оригиналите не ги пипаме изобщо",
+  "question": "nasdedup: may any dedup rule move a file out of the baba Krastinka original folders?",
+  "answer": "No. video/exported/baba Krastinka/ and Pictures/Pictures-by-years/semeini snimki/baba/ are the NEVER list: a filter over the finished quarantine list that no rule can override.",
+  "supersedes": null,
+  "source": {
+    "kind": "cli",
+    "ref": "#1554"
+  }
+}

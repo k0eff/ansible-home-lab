@@ -20,6 +20,7 @@ import unicodedata
 from collections import defaultdict
 
 R = "/mnt/krasi/"
+# D-0001 (decisions/ in this repo): the baba Krastinka originals are never moved.
 NEVER = ["video/exported/baba Krastinka/",
          "Pictures/Pictures-by-years/semeini snimki/baba/"]
 BABA = re.compile(r"krastinka|кръстинка|baba", re.I)
@@ -56,10 +57,10 @@ def main():
              if len(v) > 1
              and any(BABA.search(unicodedata.normalize("NFC", p)) for p in v)
              and len([p for p in v if p not in moved]) < 2],
-        "всяка baba група запазва поне 2 копия")
+        "всяка baba група запазва поне 2 копия (D-0002)")
     chk(not [p for p in moved if SENS.search(p)], "нула чувствителни файлове")
 
-    # A transcode has no SHA twin by definition, so the survivor is named, not looked up.
+    # A transcode has no SHA twin by definition, so the survivor is named, not looked up (D-0007).
     TRANSCODE = {"video/exported/2019-09-07--Pavel-bania--h264.mp4":
                  "video/exported/2019-09-07--Pavel-bania.mp4"}
     for goes, stays in TRANSCODE.items():

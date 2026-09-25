@@ -22,6 +22,20 @@ R = "/mnt/krasi/"
 DB = "dedup.db"
 GP = "gp_verified.json"
 
+# The owner's retention rules, recorded verbatim as decisions/D-NNNN.json in this repo
+# (#1554). Each constant below that enforces one cites its id; test_decisions.py holds
+# the NEVER paths against D-0001 so a constant cannot drift from the ruling silently.
+DECISIONS = {
+    "D-0001": "baba Krastinka originals are never touched (NEVER)",
+    "D-0002": "baba >= 2 copies in 2 folders; ICYGEN one per unique file; Candy kept",
+    "D-0003": "same folder, same SHA: the more descriptive name stays (score)",
+    "D-0004": "Pictures-by-years is canonical over the Samsung Fold 4 dump",
+    "D-0005": "ASOT 600 stays",
+    "D-0006": "video/exported: only byte-identical copies are cleaned",
+    "D-0007": "same footage re-encoded: the higher bitrate stays (OWNER_TRANSCODE)",
+    "D-0008": "node_modules is regenerable and may go",
+}
+
 
 def h(n):
     n = float(n or 0)
@@ -40,7 +54,7 @@ WORD = re.compile(r"[A-Za-zА-Яа-я]{3,}")
 
 
 def score(name):
-    """Higher means a more descriptive filename — the owner's rule for same-folder pairs."""
+    """Higher means a more descriptive filename — the owner's rule for same-folder pairs (D-0003)."""
     stem = os.path.splitext(name)[0]
     s = 0.0
     words = [w for w in WORD.findall(stem)
@@ -69,7 +83,7 @@ SENS = re.compile(r"litecoin|digitalcoin|doge|wallet|thunderbird|\.eml$|/importa
 # The two folders holding the baba Krastinka originals. Not a rule among rules — a
 # filter applied to the finished list, so that no rule added later can reach inside
 # them by accident, whatever evidence it thinks it has. The owner's instruction is
-# that the originals are not touched at all, and this is what enforces it.
+# that the originals are not touched at all (D-0001), and this is what enforces it.
 NEVER = [
     "video/exported/baba Krastinka/",
     "Pictures/Pictures-by-years/semeini snimki/baba/",
@@ -77,14 +91,14 @@ NEVER = [
 BABA = re.compile(r"krastinka|кръстинка|baba", re.I)
 BABA_KEEP = [re.compile(r"^Pictures/Pictures-by-years/semeini snimki/baba/"),
              re.compile(r"^video/exported/baba Krastinka/")]
-ICY = re.compile(r"015-ICYGEN", re.I)
+ICY = re.compile(r"015-ICYGEN", re.I)   # D-0002
 EXPORTED = re.compile(r"^video/exported/")
 
 # Pairs in video/exported that are the same footage in two encodings, so the bytes never
 # match and the duplicate pass cannot see them. Each entry is (goes, stays) and is here
 # only because the owner ruled on it after the evidence: identical duration, mean Hamming
 # distance under one bit of 64 across 213 sampled moments, and an audio envelope
-# correlation of +1.00. The lower-bitrate copy goes; nothing here is inferred.
+# correlation of +1.00. The lower-bitrate copy goes (D-0007); nothing here is inferred.
 OWNER_TRANSCODE = [
     ("video/exported/2019-09-07--Pavel-bania--h264.mp4",      # h264 High, 16.0 Mbps
      "video/exported/2019-09-07--Pavel-bania.mp4"),           # hevc Main, 34.6 Mbps
@@ -113,7 +127,7 @@ def main():
             continue                                  # crypto, mail, important/ — never
         # video/exported held the only copy of everything in it, so it was excluded
         # wholesale until the owner ruled that byte-identical copies there are cleaned
-        # like anywhere else. Every group in `dups` is a full SHA-256 match, and both
+        # like anywhere else (D-0006). Every group in `dups` is a full SHA-256 match, and both
         # groups that fall here were re-hashed independently of the database before a
         # single line was written. Anything short of a byte match is still untouched:
         # a re-encode of the same footage is a different file and stays.
@@ -122,7 +136,7 @@ def main():
 
         if any(BABA.search(p) for p in paths):
             keep = [p for p in paths if any(r.search(p) for r in BABA_KEEP)]
-            # The owner's rule is two copies in two different folders. For the video
+            # The owner's rule is two copies in two different folders (D-0002). For the video
             # clips both blessed folders hold one, so the rule is met by the blessed
             # set alone. For three of the photographs only one blessed folder has a
             # copy, and moving the other would leave a single copy of irreplaceable
@@ -152,7 +166,7 @@ def main():
             continue
 
         tops = {"/".join(p.split("/")[:2]) for p in paths}
-        if tops == {"Pictures/Pictures-by-years", "Pictures/Samsung Fold 4"}:
+        if tops == {"Pictures/Pictures-by-years", "Pictures/Samsung Fold 4"}:   # D-0004
             take("phone-dump-superseded-by-curated-tree",
                  [p for p in paths if p.startswith("Pictures/Samsung Fold 4")])
 
@@ -168,7 +182,7 @@ def main():
                 continue
             moves.append(("gphotos-reencode-verified", g))
 
-    dirs = {p for p, in c.execute("SELECT DISTINCT dirpath FROM files")}
+    dirs = {p for p, in c.execute("SELECT DISTINCT dirpath FROM files")}   # D-0008
     nm = sorted({d[:d.index("/node_modules/") + len("/node_modules")]
                  if "/node_modules/" in d else d
                  for d in dirs if "/node_modules" in d})
