@@ -1,0 +1,16 @@
+{
+  "id": "034",
+  "branch": "forge/T-2129--dev--e1",
+  "name": "core--nasdedup-win-leftovers",
+  "category": "core",
+  "status": "pass",
+  "description": "#1559: read-only report of Windows-install/system leftovers (Windows, Program Files, ProgramData, pagefile.sys, ...) under given roots with sizes, each row marked system or user; any path with a Users / Documents and Settings / Home component is user and never a candidate. Nothing is moved.",
+  "implementation": {"file": "roles/nasdedup/files/win_leftovers.py", "change": "new win_leftovers.py + test_win_leftovers.py; tasks/main.yaml ships it"},
+  "validation": {
+    "type": "unit",
+    "checks": [
+      "sh scripts/forge-verify.sh -> 'forge-verify: green (unit-test dirs: 1)'",
+      "NOT DONE: live run on the NAS ICYGEN tree (needs deploy)"
+    ]
+  }
+}
