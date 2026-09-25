@@ -104,6 +104,7 @@
     - audio_match.py
     - build_quarantine.py
     - validate_quarantine.py
+    - verify_trees.py
 
 - name: Install the scan units
   ansible.builtin.template:
