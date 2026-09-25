@@ -39,6 +39,16 @@ nasdedup_tier3_workers: 4
 # Set it back to false afterwards.
 nasdedup_run_pass: false
 
+# Left over from the 2026-09-03 Docker attempt; the scan runs from systemd units now,
+# and an unmanaged compose file is an invitation to start a second, conflicting scan.
+nasdedup_docker_leftovers:
+  - "{{ nasdedup_root }}/Dockerfile"
+  - "{{ nasdedup_root }}/docker-compose.yml"
+
+# The outcome of the scan: the quarantine script build_quarantine.py wrote, which
+# validate_quarantine.py must pass (it reads dedup.db and gp_verified.json beside it).
+nasdedup_quarantine_plan: "{{ nasdedup_state }}/quarantine.sh"
+
 # systemd names a mount unit after its path: /mnt/krasi -> mnt-krasi.mount. Derived
 # rather than written twice, so the two can never drift apart.
 nasdedup_mount_unit: "{{ nasdedup_mount | regex_replace('^/', '') | regex_replace('/', '-') }}.mount"

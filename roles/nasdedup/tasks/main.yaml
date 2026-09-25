@@ -140,3 +140,36 @@
     enabled: false
     state: "{{ omit if nasdedup_run_pass | bool else 'stopped' }}"
     daemon_reload: true
+
+- name: Remove the Docker leftovers
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ nasdedup_docker_leftovers }}"
+
+# With no pass requested the scan is finished, so its outcome must be on disk and
+# valid. While a pass runs the plan does not exist yet, so the checks are skipped.
+- name: Look for the quarantine plan
+  ansible.builtin.stat:
+    path: "{{ nasdedup_quarantine_plan }}"
+  register: nasdedup_plan
+  when: not nasdedup_run_pass | bool
+
+- name: Fail if the quarantine plan is missing
+  ansible.builtin.assert:
+    that:
+      - nasdedup_plan.stat.exists
+    fail_msg: >-
+      {{ nasdedup_quarantine_plan }} does not exist. The scan is stopped, so its
+      outcome must be on disk: build it with build_quarantine.py.
+  when: not nasdedup_run_pass | bool
+
+- name: Validate the quarantine plan against the owner's rules
+  # Read-only: the validator only reads the plan, dedup.db and gp_verified.json.
+  ansible.builtin.command:
+    cmd: python3 {{ nasdedup_root }}/validate_quarantine.py {{ nasdedup_quarantine_plan }}
+    chdir: "{{ nasdedup_quarantine_plan | dirname }}"
+  become: true
+  become_user: "{{ nasdedup_user }}"
+  changed_when: false
+  when: not nasdedup_run_pass | bool
