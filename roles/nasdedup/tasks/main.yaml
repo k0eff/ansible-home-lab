@@ -126,9 +126,45 @@
     enabled: "{{ nasdedup_service_enabled }}"
     daemon_reload: true
 
-- name: Enable the resume timer
+- name: Set the resume timer to follow the scan service
+  # The timer starts nasdedup.service every five minutes, so leaving it on while the
+  # service is meant to be off would restart a finished scan forever.
   ansible.builtin.systemd_service:
     name: nasdedup-resume.timer
-    enabled: true
-    state: started
+    enabled: "{{ nasdedup_service_enabled }}"
+    state: "{{ 'started' if nasdedup_service_enabled else 'stopped' }}"
     daemon_reload: true
+
+- name: Keep the finished scan stopped
+  ansible.builtin.systemd_service:
+    name: nasdedup.service
+    state: stopped
+  when: not nasdedup_service_enabled
+
+- name: Remove the Docker leftovers
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ nasdedup_docker_leftovers }}"
+
+- name: Look for the quarantine plan
+  ansible.builtin.stat:
+    path: "{{ nasdedup_quarantine_plan }}"
+  register: nasdedup_plan
+
+- name: Fail if the quarantine plan is missing
+  ansible.builtin.assert:
+    that:
+      - nasdedup_plan.stat.exists
+    fail_msg: >-
+      {{ nasdedup_quarantine_plan }} does not exist. The scan is stopped, so its
+      outcome must be on disk: build it with build_quarantine.py.
+
+- name: Validate the quarantine plan against the owner's rules
+  # Read-only: the validator only reads the plan, dedup.db and gp_verified.json.
+  ansible.builtin.command:
+    cmd: python3 {{ nasdedup_root }}/validate_quarantine.py {{ nasdedup_quarantine_plan }}
+    chdir: "{{ nasdedup_quarantine_plan | dirname }}"
+  become: true
+  become_user: "{{ nasdedup_user }}"
+  changed_when: false
