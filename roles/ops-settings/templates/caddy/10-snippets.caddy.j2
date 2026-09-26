@@ -123,6 +123,12 @@
 	reverse_proxy {{ caddy_backend_host }}:{{ caddy_forgejo_port }}
 }
 
+# market-news.koeff.com - market-news web + read API (T-34). Same shape as forgejo: private IP
+# in public DNS, HTTPS only, certificate by DNS-01.
+(market_news_proxy) {
+	reverse_proxy {{ caddy_backend_host }}:{{ caddy_market_news_port }}
+}
+
 # --- v2 parallel-run backends (if enabled) ---
 {% if caddy_v2_enabled %}
 

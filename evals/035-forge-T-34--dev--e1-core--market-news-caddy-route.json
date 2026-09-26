@@ -1,0 +1,16 @@
+{
+  "id": "035",
+  "branch": "forge/T-34--dev--e1",
+  "name": "core--market-news-caddy-route",
+  "category": "core",
+  "status": "pass",
+  "description": "T-34: market-news.koeff.com site in 30-internal.caddy.j2, proxied to the market-news web port on vm700 via caddy_backend_host, LAN-only like forgejo.koeff.com.",
+  "implementation": {"file": "roles/ops-settings/templates/caddy/30-internal.caddy.j2", "change": "new site block + market_news_proxy snippet + caddy_host_market_news / caddy_market_news_port defaults + docs"},
+  "validation": {
+    "type": "syntax",
+    "checks": [
+      "ansible-playbook playbook-index.yaml --syntax-check -> 'playbook: playbook-index.yaml'", "sh scripts/forge-verify.sh -> 'forge-verify: green (unit-test dirs: 1)'", "NOT DONE: route 502s until market-news publishes web on the LAN address (compose binds 127.0.0.1)",
+      "NOT DONE: DNS record + live Caddy reload (orchestrator, D-0003)"
+    ]
+  }
+}

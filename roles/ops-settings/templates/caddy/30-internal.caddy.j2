@@ -21,3 +21,9 @@
 	import access_log
 	import forgejo_proxy
 }
+
+# market-news.koeff.com - market-news web (T-34). Resolves to vm700's private address; HTTPS only, LAN only.
+{{ caddy_host_market_news }} {
+	import access_log
+	import market_news_proxy
+}

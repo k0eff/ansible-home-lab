@@ -218,6 +218,11 @@ caddy_imot_port: 8790
 caddy_omniroute_port: 20130
 caddy_portainer_port: 9000
 caddy_forgejo_port: 3000
+# market-news web service (T-33/T-34), WEB_PORT in market-news deploy/docker-compose.yml.
+# That compose publishes it on 127.0.0.1 only, which this bridge-networked Caddy
+# cannot reach via caddy_backend_host: the route answers 502 until the web port is
+# published on vm700's LAN address (imot2026's pattern). See docs/market-news.md.
+caddy_market_news_port: 18736
 
 # --- Hostnames (18 public + 1 parallel-run fallback) ----------------------------
 # Production public.
@@ -235,6 +240,7 @@ caddy_host_shareurl: shareurl.koeff.com
 # them is stopped, so their hostnames, ports and Caddy blocks went with it.
 caddy_host_portainer: portainer.local.koeff.com
 caddy_host_forgejo: forgejo.koeff.com
+caddy_host_market_news: market-news.koeff.com
 
 # Parallel-run v2 hostnames — RETIRED 2026-08-16.
 # These were staging twins of the prod hostnames, pointing at identical backends.

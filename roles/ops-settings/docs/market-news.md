@@ -6,6 +6,21 @@ Runs market-news `deploy/docker-compose.yml` (#1) on vm700 as its own compose pr
 `roles/ops-settings/defaults/main.yaml`. Kafka stays in the stack (D-0002). Live run authorised by
 D-0003.
 
+## Web — https://market-news.koeff.com (LAN only)
+
+Caddy edge site in `templates/caddy/30-internal.caddy.j2` (T-34), snippet `market_news_proxy`,
+defaults `caddy_host_market_news` / `caddy_market_news_port` (18736, the compose `WEB_PORT`).
+Same pattern as `forgejo.koeff.com`: an A record to vm700's **private** address — the same
+`caddy_backend_host` value forgejo's record uses — with the certificate by DNS-01 through
+Cloudflare, so it works on the LAN only. The DNS record and the Caddy reload are the
+orchestrator's (D-0003); deploy with `--tags caddy_stack -e caddy_enabled=true`.
+
+**Known gap — the route is dead until market-news changes its bind.** market-news
+`deploy/docker-compose.yml` publishes `web` on `127.0.0.1:18736` (T-33). Caddy runs in its own
+bridge network and reaches backends at `caddy_backend_host`, not the host's loopback, so the
+site answers 502 until `web` is published on vm700's LAN address (imot2026's
+`imot2026_web_bind_host` pattern) — a change in the market-news repo.
+
 ## Deploy
 
 ```sh
